@@ -1,10 +1,98 @@
-/* Layout only. Native controls and React Flow's default visual styles. */
-#root { height: calc(100dvh - 16px); }
-main { height: 100%; display: flex; flex-direction: column; gap: 8px; }
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.workspace { display: flex; flex: 1; min-height: 0; }
-.canvas { flex: 1; min-width: 0; border: 1px solid #ccc; }
-aside { width: 220px; padding-left: 12px; overflow: auto; overflow-wrap: anywhere; }
-aside label { display: block; margin-bottom: 12px; }
-textarea { display: block; width: 100%; min-height: 80px; box-sizing: border-box; }
-.edge-label { position: absolute; background: white; padding: 2px; max-width: 240px; overflow-wrap: anywhere; }
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  color: #252d3d;
+  background: #fcfdff;
+  font-synthesis: none;
+  --accent: #386bfa;
+  --muted: #7c8596;
+  --border: #e0e5ed;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, textarea, input { font: inherit; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+button:hover:not(:disabled) { background: #f0f3f9; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { color: #aab2bf; cursor: default; }
+.icon { flex: 0 0 auto; }
+code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+#root, .editor-shell { width: 100%; height: 100dvh; }
+.editor-shell { position: relative; overflow: hidden; }
+.canvas { position: absolute; inset: 0; outline: none; }
+.surface { background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 2px 8px #17243b08, 0 1px 2px #17243b04; }
+.editor-header { position: absolute; inset: 24px 28px auto; display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 10; }
+.wordmark { font-size: 25px; font-weight: 650; letter-spacing: -1px; }
+.save-status { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 0 6px 12px; background: #fcfdff; }
+.save-status .icon { color: #299b79; width: 16px; height: 16px; }
+.save-status.is-pending .icon { color: #b88935; }
+.save-status.is-error .icon { color: #c65353; }
+.toolbar { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 5px 7px; z-index: 20; white-space: nowrap; }
+.toolbar button { height: 36px; padding: 0 13px; font-size: 13px; }
+.control-divider { display: block; width: 1px; height: 20px; margin: 0 6px; background: var(--border); flex-shrink: 0; }
+.canvas-controls { position: absolute; left: 24px; bottom: 26px; display: flex; align-items: center; gap: 2px; padding: 4px; z-index: 20; }
+.canvas-controls button { width: 30px; height: 34px; }
+.canvas-controls output { min-width: 43px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.canvas-controls .control-divider { margin: 0 3px; }
+.canvas-hint { position: absolute; bottom: 83px; left: 25px; margin: 0; color: var(--muted); font-size: 11px; pointer-events: none; }
+.canvas-hint span { padding: 0 7px; color: #acb5c4; }
+.empty-hint { position: absolute; inset: 45% 0 auto; color: #7a8598; font-size: 15px; text-align: center; pointer-events: none; }
+.empty-hint small { display: block; margin-top: 10px; color: #a0a8b5; font-size: 12px; }
+
+/* React Flow remains responsible for selection, ports and dragging. */
+.react-flow { --xy-node-background-color-default: #fff; --xy-node-border-default: 1px solid #b4bdca; --xy-edge-stroke-default: #a0a8b5; --xy-edge-stroke-selected-default: #386bfa; --xy-edge-stroke-width-default: 1.2; --xy-selection-background-color-default: #386bfa0a; --xy-selection-border-default: 1px solid #386bfa99; }
+.react-flow__node-default { width: 172px; min-height: 54px; padding: 17px 19px; border-radius: 7px; text-align: left; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 14px; line-height: 18px; color: #293244; box-shadow: none; }
+.react-flow__node-default:hover { border-color: #8796ad; }
+.react-flow__node-default.selected, .react-flow__node-default:focus-visible { background: #edf2ff; border-color: var(--accent); box-shadow: 0 0 0 1px #386bfa16; outline: none; }
+.react-flow__handle { width: 8px; height: 8px; border: 2px solid #fcfdff; background: #a0aabd; opacity: 0; transition: opacity 100ms ease; }
+.react-flow__node:hover .react-flow__handle, .react-flow__node.selected .react-flow__handle, .react-flow__node:focus-within .react-flow__handle, .is-connecting .react-flow__handle { opacity: 1; }
+.react-flow__node.selected .react-flow__handle { background: var(--accent); }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 1.6; }
+.edge-label { position: absolute; background: #fcfdff; padding: 3px 7px; border-radius: 5px; max-width: 240px; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; color: #596477; }
+.edge-label.is-selected { color: #2857d9; background: #edf2ff; }
+.react-flow__nodesselection-rect { border-radius: 8px; }
+.react-flow__attribution { font-size: 8px; opacity: 0.55; }
+
+.details-panel { position: absolute; right: 24px; bottom: 26px; width: 292px; max-height: calc(100dvh - 140px); overflow: auto; padding: 15px 17px 18px; z-index: 20; }
+.details-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.details-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.collapse-button { width: 26px; height: 26px; color: var(--muted); }
+.details-panel.is-collapsed { padding-bottom: 15px; }
+.is-collapsed .collapse-button .icon { transform: rotate(180deg); }
+.details-content { padding-top: 17px; font-size: 13px; }
+.details-content[hidden] { display: none; }
+.detail-field { display: flex; flex-direction: column; gap: 9px; color: #626d80; }
+.full-id { color: #303b50; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.coordinate-row { display: flex; gap: 28px; margin: 17px 0 0; }
+.coordinate-row div, .endpoint-list div { display: flex; align-items: baseline; gap: 12px; }
+.details-content dt { color: #7d8797; }
+.details-content dd { margin: 0; color: #303b50; font-variant-numeric: tabular-nums; }
+.endpoint-list { display: grid; gap: 11px; margin: 0 0 18px; }
+.detail-field textarea { display: block; resize: vertical; min-height: 62px; max-height: 150px; width: 100%; padding: 9px 10px; color: #303b50; border: 1px solid #d4dce7; border-radius: 6px; outline: none; line-height: 1.6; background: #fff; }
+.detail-field textarea::placeholder { color: #a3acba; }
+.detail-field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px #386bfa0d; }
+.direction-field { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #4a5568; }
+.direction-field input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.selection-count { margin: 0; color: #303b50; }
+.detail-hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.context-menu { position: fixed; width: 184px; padding: 5px; border-radius: 7px; box-shadow: 0 5px 18px #1f2d4514, 0 1px 3px #1f2d4508; z-index: 50; }
+.context-menu button { width: 100%; height: 37px; justify-content: flex-start; padding: 0 10px; gap: 12px; font-size: 13px; }
+.context-menu button:focus-visible { background: #f0f4fc; outline: none; }
+.context-menu button:disabled { color: #afb6c2; }
+.menu-count { margin-left: auto; color: var(--muted); font-size: 11px; }
+.save-error { position: absolute; right: 24px; top: 70px; max-width: min(410px, calc(100% - 48px)); padding: 12px 14px; z-index: 30; color: #9a4444; font-size: 12px; line-height: 1.7; }
+.save-error button { color: #365ab2; margin-left: 6px; padding: 3px 6px; }
+@media (max-width: 1220px) {
+  .details-panel { bottom: 94px; }
+}
+@media (max-width: 760px) {
+  .editor-header { inset: 18px 18px auto; }
+  .toolbar { bottom: 22px; }
+  .toolbar button { padding: 0 12px; }
+  .toolbar button span { display: none; }
+  .canvas-controls { top: 66px; bottom: auto; left: 16px; }
+  .canvas-hint { top: 118px; bottom: auto; left: 18px; font-size: 10px; }
+  .details-panel { right: 16px; bottom: 90px; width: min(292px, calc(100vw - 32px)); max-height: calc(100dvh - 245px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__handle { transition: none; }
+}
