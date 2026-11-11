@@ -1,10 +1,11 @@
-import type { BaseNode, BaseEdge, NodeLayout } from '../shared/model.js';
-import type { Change } from '../shared/protocol.js';
+import { layoutKey, membershipKey, type BaseNode, type BaseEdge, type NodeLayout, type Membership } from '../shared/model.js';
+import { changeKey, type Change } from '../shared/protocol.js';
 
 export interface GraphObjects {
   nodes: Record<string, BaseNode>;
   edges: Record<string, BaseEdge>;
   layouts: Record<string, NodeLayout>;
+  memberships: Record<string, Membership>;
 }
 
 export interface HistoryEntry {
@@ -24,8 +25,9 @@ export function invertChanges(graph: GraphObjects, changes: Change[]): Change[] 
       case 'node.delete': {
         const node = graph.nodes[change.id];
         if (node) inverse.push({ type: 'node.put', node });
-        const layout = graph.layouts[change.id];
-        if (layout) inverse.push({ type: 'layout.put', layout });
+        for (const edge of Object.values(graph.edges)) if (edge.source === change.id || edge.target === change.id) inverse.push({ type: 'edge.put', edge });
+        for (const membership of Object.values(graph.memberships)) if (membership.containerId === change.id || membership.memberId === change.id) inverse.push({ type: 'membership.put', membership });
+        for (const layout of Object.values(graph.layouts)) if (layout.nodeId === change.id || layout.contextNodeId === change.id) inverse.push({ type: 'layout.put', layout });
         break;
       }
       case 'edge.put': {
@@ -38,14 +40,21 @@ export function invertChanges(graph: GraphObjects, changes: Change[]): Change[] 
         if (edge) inverse.push({ type: 'edge.put', edge });
         break;
       }
-      case 'layout.put': {
-        const previous = graph.layouts[change.layout.nodeId];
+      case 'membership.put': case 'membership.delete': {
+        const previous = graph.memberships[membershipKey(change.membership)];
+        if (previous) inverse.push({ type: 'membership.put', membership: previous });
+        else if (change.type === 'membership.put') inverse.push({ type: 'membership.delete', membership: change.membership });
+        break;
+      }
+      case 'layout.put': case 'layout.delete': {
+        const previous = graph.layouts[layoutKey(change.layout)];
         if (previous) inverse.push({ type: 'layout.put', layout: previous });
+        else if (change.type === 'layout.put') inverse.push({ type: 'layout.delete', layout: { contextNodeId: change.layout.contextNodeId, nodeId: change.layout.nodeId } });
         break;
       }
     }
   }
-  return inverse;
+  return [...new Map(inverse.map(change => [changeKey(change), change])).values()];
 }
 
 export function recordHistory(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {

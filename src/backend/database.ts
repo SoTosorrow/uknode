@@ -4,9 +4,10 @@ import { dirname, resolve } from 'node:path';
 import SQLite from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { eq, lte } from 'drizzle-orm';
+import { and, eq, isNull, lte } from 'drizzle-orm';
 import * as tables from './schema.js';
-import type { GraphData } from '../shared/model.js';
+import type { GraphData, NodeLayout, Membership } from '../shared/model.js';
+import { hasMembershipCycle } from '../shared/memberships.js';
 import { changeKey, type ChangeBatch, type Receipt } from '../shared/protocol.js';
 
 export class WriteError extends Error {
@@ -25,7 +26,9 @@ function payloadHash(batch: ChangeBatch): string {
         const { id, source, target, directed, label } = change.edge;
         return [change.type, id, source, target, directed, label];
       }
-      case 'layout.put': return [change.type, change.layout.nodeId, change.layout.x, change.layout.y];
+      case 'membership.put': case 'membership.delete': return [change.type, change.membership.containerId, change.membership.memberId];
+      case 'layout.put': return [change.type, change.layout.contextNodeId, change.layout.nodeId, change.layout.x, change.layout.y];
+      case 'layout.delete': return [change.type, change.layout.contextNodeId, change.layout.nodeId];
     }
   });
   return createHash('sha256').update(JSON.stringify([batch.expectedRevision, changes])).digest('hex');
@@ -35,7 +38,11 @@ export function openDatabase(filename: string) {
   if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
   const sqlite = new SQLite(filename);
   const db = drizzle(sqlite);
-  const { baseNodes, baseEdges, viewNodeLayouts, baseStoreState, baseBatchReceipts } = tables;
+  const { baseNodes, baseEdges, baseMemberships, viewNodeLayouts, baseStoreState, baseBatchReceipts } = tables;
+  const membershipWhere = ({ containerId, memberId }: Membership) => and(eq(baseMemberships.containerId, containerId), eq(baseMemberships.memberId, memberId));
+  const layoutWhere = ({ contextNodeId, nodeId }: Pick<NodeLayout, 'contextNodeId' | 'nodeId'>) => and(
+    eq(viewNodeLayouts.nodeId, nodeId), contextNodeId === null ? isNull(viewNodeLayouts.contextNodeId) : eq(viewNodeLayouts.contextNodeId, contextNodeId),
+  );
   try {
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('journal_mode = WAL');
@@ -55,7 +62,9 @@ export function openDatabase(filename: string) {
         id: baseEdges.id, source: baseEdges.source, target: baseEdges.target,
         directed: baseEdges.directed, label: baseEdges.label,
       }).from(baseEdges).orderBy(baseEdges.createdAt, baseEdges.id).all(),
-      layouts: tx.select().from(viewNodeLayouts).orderBy(viewNodeLayouts.nodeId).all(),
+      memberships: tx.select({ containerId: baseMemberships.containerId, memberId: baseMemberships.memberId })
+        .from(baseMemberships).orderBy(baseMemberships.containerId, baseMemberships.memberId).all(),
+      layouts: tx.select().from(viewNodeLayouts).orderBy(viewNodeLayouts.contextNodeId, viewNodeLayouts.nodeId).all(),
     }));
   }
 
@@ -76,6 +85,8 @@ export function openDatabase(filename: string) {
 
       for (const change of batch.changes) {
         if (change.type === 'edge.delete') tx.delete(baseEdges).where(eq(baseEdges.id, change.id)).run();
+        if (change.type === 'membership.delete') tx.delete(baseMemberships).where(membershipWhere(change.membership)).run();
+        if (change.type === 'layout.delete') tx.delete(viewNodeLayouts).where(layoutWhere(change.layout)).run();
         if (change.type === 'node.delete') tx.delete(baseNodes).where(eq(baseNodes.id, change.id)).run();
       }
       const now = Date.now();
@@ -86,11 +97,19 @@ export function openDatabase(filename: string) {
       }
       const nodeExists = (id: string) => Boolean(tx.select({ id: baseNodes.id }).from(baseNodes).where(eq(baseNodes.id, id)).get());
       for (const change of batch.changes) {
+        if (change.type === 'membership.put') {
+          const { containerId, memberId } = change.membership;
+          if (!nodeExists(containerId) || !nodeExists(memberId)) throw new WriteError(400, 'MISSING_MEMBER', '收录关系对应的节点不存在');
+          if (containerId === memberId) throw new WriteError(400, 'MEMBERSHIP_CYCLE', '节点不能收录自身或形成包含循环');
+          tx.insert(baseMemberships).values({ ...change.membership, createdAt: now }).onConflictDoNothing().run();
+        }
         if (change.type === 'layout.put') {
-          if (!nodeExists(change.layout.nodeId)) throw new WriteError(400, 'MISSING_NODE', '坐标对应的节点不存在');
-          tx.insert(viewNodeLayouts).values(change.layout).onConflictDoUpdate({
-            target: viewNodeLayouts.nodeId, set: { x: change.layout.x, y: change.layout.y },
-          }).run();
+          const { contextNodeId, nodeId, x, y } = change.layout;
+          if (!nodeExists(nodeId) || (contextNodeId !== null && !nodeExists(contextNodeId))) throw new WriteError(400, 'MISSING_NODE', '坐标对应的节点或范围不存在');
+          const where = layoutWhere(change.layout);
+          if (tx.select({ nodeId: viewNodeLayouts.nodeId }).from(viewNodeLayouts).where(where).get()) {
+            tx.update(viewNodeLayouts).set({ x, y }).where(where).run();
+          } else tx.insert(viewNodeLayouts).values(change.layout).run();
         }
         if (change.type === 'edge.put') {
           const edge = change.edge;
@@ -98,6 +117,10 @@ export function openDatabase(filename: string) {
           tx.insert(baseEdges).values({ ...edge, createdAt: now, updatedAt: now })
             .onConflictDoUpdate({ target: baseEdges.id, set: { ...edge, updatedAt: now } }).run();
         }
+      }
+      if (batch.changes.some(change => change.type === 'membership.put')) {
+        const memberships = tx.select({ containerId: baseMemberships.containerId, memberId: baseMemberships.memberId }).from(baseMemberships).all();
+        if (hasMembershipCycle(memberships)) throw new WriteError(400, 'MEMBERSHIP_CYCLE', '收录会形成包含循环，整批修改未写入');
       }
       const nextRevision = revision + 1;
       tx.update(baseStoreState).set({ revision: nextRevision }).where(eq(baseStoreState.id, 1)).run();

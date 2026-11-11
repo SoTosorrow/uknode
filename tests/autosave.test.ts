@@ -8,7 +8,7 @@ import { openDatabase } from '../src/backend/database.js';
 import { createApp } from '../src/backend/routes.js';
 import type { GraphData } from '../src/shared/model.js';
 
-const empty: GraphData = { revision: 0, nodes: [], edges: [], layouts: [] };
+const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
 const loadedStore = () => { const store = createGraphStore(); store.getState().hydrate(empty); return store; };
 
 test('pending changes coalesce; creating then deleting unsent objects leaves no writes', () => {
@@ -32,29 +32,33 @@ test('acknowledging an in-flight create preserves the newer pending delete', () 
   const store = loadedStore(), id = store.getState().createNode(1, 2);
   const batch = store.getState().beginBatch()!;
   store.getState().deleteSelection();
-  assert.deepEqual(store.getState().pending, { [`node:${id}`]: { type: 'node.delete', id } });
+  const expected = {
+    [`node:${id}`]: { type: 'node.delete', id },
+    [`layout:global:${id}`]: { type: 'layout.delete', layout: { contextNodeId: null, nodeId: id } },
+  };
+  assert.deepEqual(store.getState().pending, expected);
   store.getState().acknowledge({ batchId: batch.batchId, revision: 1 });
   assert(!store.getState().nodes[id]);
-  assert.deepEqual(store.getState().beginBatch()?.changes, [{ type: 'node.delete', id }]);
+  assert.deepEqual(new Set(store.getState().beginBatch()?.changes), new Set(Object.values(expected)));
 });
 
 test('drag frames do not queue writes; drag and cascaded deletion undo restore the original objects', () => {
   const store = loadedStore();
   const a = randomUUID(), b = randomUUID(), edge = { id: randomUUID(), source: a, target: b, label: '', directed: false };
-  const start = { nodeId: a, x: 1, y: 2 }, end = { nodeId: a, x: 60, y: 70 };
-  store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], layouts: [start, { nodeId: b, x: 100, y: 100 }] });
+  const start = { contextNodeId: null, nodeId: a, x: 1, y: 2 }, end = { contextNodeId: null, nodeId: a, x: 60, y: 70 };
+  store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], memberships: [], layouts: [start, { contextNodeId: null, nodeId: b, x: 100, y: 100 }] });
   store.getState().previewPositions([{ ...start, x: 30 }]);
   assert.deepEqual(store.getState().pending, {});
   store.getState().commitPositions([start], [end]);
   store.getState().undo();
-  assert.deepEqual(store.getState().layouts[a], start);
+  assert.deepEqual(store.getState().layouts[`global:${a}`], start);
   store.getState().redo();
-  assert.deepEqual(store.getState().layouts[a], end);
+  assert.deepEqual(store.getState().layouts[`global:${a}`], end);
   store.getState().select([a], []); store.getState().deleteSelection();
   assert(!store.getState().edges[edge.id]);
   store.getState().undo();
   assert.deepEqual(store.getState().nodes[a], { id: a });
-  assert.deepEqual(store.getState().layouts[a], end);
+  assert.deepEqual(store.getState().layouts[`global:${a}`], end);
   assert.deepEqual(store.getState().edges[edge.id], edge);
 });
 
@@ -85,7 +89,7 @@ test('a lost success response retries the identical batch and then saves newer e
   assert.equal(db.readGraph().revision, 1);
   assert.equal(store.getState().error?.retryable, true);
   const frozen = store.getState().inFlight;
-  store.getState().commitPositions([{ nodeId: id, x: 5, y: 6 }], [{ nodeId: id, x: 20, y: 30 }]);
+  store.getState().commitPositions([{ contextNodeId: null, nodeId: id, x: 5, y: 6 }], [{ contextNodeId: null, nodeId: id, x: 20, y: 30 }]);
   assert.equal(store.getState().inFlight, frozen);
   await saver.retry();
   assert.equal(db.readGraph().revision, 1);
@@ -93,7 +97,7 @@ test('a lost success response retries the identical batch and then saves newer e
   assert.equal(Object.keys(store.getState().pending).length, 1);
   await saver.flush();
   assert.equal(db.readGraph().revision, 2);
-  assert.deepEqual(db.readGraph().layouts, [{ nodeId: id, x: 20, y: 30 }]);
+  assert.deepEqual(db.readGraph().layouts, [{ contextNodeId: null, nodeId: id, x: 20, y: 30 }]);
   assert.deepEqual(store.getState().pending, {});
 });
 
@@ -109,9 +113,9 @@ test('edits made while a response is pending remain in the next batch', async t 
   const id = store.getState().createNode(1, 2);
   const sending = saver.flush();
   await enteredPromise;
-  store.getState().commitPositions([{ nodeId: id, x: 1, y: 2 }], [{ nodeId: id, x: 3, y: 4 }]);
+  store.getState().commitPositions([{ contextNodeId: null, nodeId: id, x: 1, y: 2 }], [{ contextNodeId: null, nodeId: id, x: 3, y: 4 }]);
   release(); await sending;
-  assert.equal(store.getState().layouts[id].x, 3);
+  assert.equal(store.getState().layouts[`global:${id}`].x, 3);
   assert.equal(Object.keys(store.getState().pending).length, 1);
   await saver.flush();
   assert.equal(db.readGraph().layouts[0].x, 3);

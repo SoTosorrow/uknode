@@ -29,25 +29,25 @@ test('migrations create the declared core tables; edits and cascades survive reo
   const a = randomUUID(), b = randomUUID(), edge = randomUUID(), parallel = randomUUID(), loop = randomUUID();
   db.applyBatch(batch(0, [
     { type: 'node.put', node: { id: a } }, { type: 'node.put', node: { id: b } },
-    { type: 'layout.put', layout: { nodeId: a, x: 10, y: 20 } },
-    { type: 'layout.put', layout: { nodeId: b, x: 100, y: 200 } },
+    { type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 10, y: 20 } },
+    { type: 'layout.put', layout: { contextNodeId: null, nodeId: b, x: 100, y: 200 } },
     ...[edge, parallel].map(id => ({ type: 'edge.put' as const, edge: { id, source: a, target: b, label: '', directed: false } })),
     { type: 'edge.put', edge: { id: loop, source: b, target: b, label: 'self', directed: true } },
   ]));
   const original = db.readGraph();
   db.applyBatch(batch(1, [
-    { type: 'layout.put', layout: { nodeId: a, x: 33, y: 44 } },
+    { type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 33, y: 44 } },
     { type: 'edge.put', edge: { id: edge, source: a, target: b, label: '关联', directed: true } },
   ]));
   db.close(); db = openDatabase(filename);
   assert.equal(db.readGraph().revision, 2);
-  assert.deepEqual(db.readGraph().layouts.find(p => p.nodeId === a), { nodeId: a, x: 33, y: 44 });
+  assert.deepEqual(db.readGraph().layouts.find(p => p.nodeId === a), { contextNodeId: null, nodeId: a, x: 33, y: 44 });
   assert.equal(db.readGraph().edges.find(e => e.id === edge)?.label, '关联');
   assert.deepEqual(db.readGraph().nodes, original.nodes);
   db.applyBatch(batch(2, [{ type: 'node.delete', id: a }]));
   assert.deepEqual(db.readGraph().nodes, [{ id: b }]);
   assert.deepEqual(db.readGraph().edges.map(e => e.id), [loop]);
-  assert.deepEqual(db.readGraph().layouts, [{ nodeId: b, x: 100, y: 200 }]);
+  assert.deepEqual(db.readGraph().layouts, [{ contextNodeId: null, nodeId: b, x: 100, y: 200 }]);
 });
 
 test('retries are idempotent even after a later write; mismatched batch reuse is rejected', t => {
@@ -56,7 +56,7 @@ test('retries are idempotent even after a later write; mismatched batch reuse is
   const initial = batch(0, [{ type: 'node.put', node: { id: a } }]);
   const receipt = db.applyBatch(initial);
   assert.deepEqual(db.applyBatch(initial), receipt);
-  db.applyBatch(batch(1, [{ type: 'layout.put', layout: { nodeId: a, x: 8, y: 9 } }]));
+  db.applyBatch(batch(1, [{ type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 8, y: 9 } }]));
   assert.deepEqual(db.applyBatch(initial), receipt);
   assert.equal(db.readGraph().revision, 2);
   assert.throws(() => db.applyBatch({ ...initial, changes: [{ type: 'node.delete', id: a }] }), (e: unknown) => e instanceof WriteError && e.code === 'BATCH_MISMATCH');
@@ -71,7 +71,7 @@ test('an invalid edge or duplicate change rolls back the entire batch', t => {
     { type: 'edge.put', edge: { id: randomUUID(), source: id, target: randomUUID(), label: '', directed: false } },
   ]);
   assert.throws(() => db.applyBatch(invalid), /端点不存在/);
-  assert.deepEqual(db.readGraph(), { revision: 0, nodes: [], edges: [], layouts: [] });
+  assert.deepEqual(db.readGraph(), { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] });
   assert.throws(() => db.applyBatch(batch(0, [{ type: 'node.put', node: { id } }, { type: 'node.delete', id }])), /只能出现一次/);
   assert.equal(db.readGraph().revision, 0);
   // Failed transactions must not leave an idempotency receipt behind.
