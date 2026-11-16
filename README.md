@@ -95,11 +95,18 @@ npm start
 | `src/runtime/` | `document.ts` 组合图和持久布局，`protocol.ts` 定义保存批次和 HTTP 校验，`errors.ts` 定义写入错误。 |
 | `src/runtime/client/` | `session.ts` 管理文档、待保存变更和回执；`history.ts` 管理会话撤销；`autosave.ts` 协调 HTTP 保存。没有选中、弹窗导航或拖拽预览状态。 |
 | `src/runtime/server/` | `batches.ts` 通过存储接口协调修订检查、幂等回执和批次提交，不直接使用 SQLite 或 Drizzle。 |
-| `src/view/` | React 画布和详情组件；`editor-store.ts` 单独管理选择、导航及拖拽预览，并组合编辑动作；`scope.ts` 提供默认收录浏览。 |
+| `src/view/` | `graph-canvas.tsx` 提供独立画布；`default-editor.tsx` 接入默认范围和编辑动作；`node-shell.tsx` 提供节点外壳与控件交互隔离；`selection-details.tsx` 组合默认详情；`editor-store.ts` 管理选择、导航和拖拽预览；`scope.ts` 提供收录投影。 |
 | `src/storage/` | `schema.ts` 声明数据库结构；`sqlite.ts` 实现一致读取、事务和 SQL 写入，在事务内调用核心结构校验。 |
 | `src/app/` | `frontend/main.tsx` 装配会话、画布和自动保存；`backend/index.ts` 装配存储、批次服务和 HTTP 路由。 |
 
 图操作可以直接调用 `core`；不需要画布的编辑可以使用 `createSessionStore()`。界面通过 `createEditor(session)` 接入会话，并维护独立的画布状态。业务模块、能力注册、节点激活执行和自动沿图运行尚未实现。
+
+画布展示有两种组合方式：
+
+- 使用 `App` 的 `renderNode`、`renderDetails`、`onOpenNode` 属性，在默认收录编辑器中提供节点内容、附加详情和打开动作。未提供时仍显示 ID、基础详情，双击打开收录弹窗。渲染回调返回 React 组件，业务数据由调用方管理。
+- 在 `ReactFlowProvider` 内直接使用 `GraphCanvas`，传入可见节点 ID、连线、逐节点坐标、选区和操作回调。画布不依赖收录结构、编辑会话或保存服务。坐标预览与拖动提交分别回调；选区回调使用函数更新，调用方基于最新选区应用它。
+
+节点内的输入框、按钮、媒体控件和滚动内容放入 `NodeControls`。该区域使用 React Flow 的 `nodrag`、`nopan`、`nowheel` 边界，并隔离图快捷键、双击与右键；保留原生文字编辑、控件激活和内容滚动。其余节点区域保持拖动与选中。通用 `DetailsPanel` 只负责标题、内容容器和折叠；当前默认详情与调用方附加内容共享该容器。展示接口不代表业务数据已经接入持久化和撤销。
 
 - `migrations/`：Drizzle Kit 生成的结构迁移。
 - `tests/`：真实 SQLite/Fastify 测试，以及通过 Axios 适配器验证保存队列。
@@ -109,4 +116,4 @@ npm test
 npm run build
 ```
 
-`npm run build` 包含前后端 TypeScript 检查。测试包含旧结构迁移、范围布局隔离、循环事务回滚、收录变更合并、跨范围删除撤销、直接成员展示与主画布选择恢复，以及短 ID 校验、核心独立操作、无画布会话保存与界面状态隔离。已确认开发范围见 `design.md` 的 1.3～1.7、1.9 节；其他产品目标留待逐轮确认。
+`npm run build` 包含前后端 TypeScript 检查。测试包含旧结构迁移、范围布局隔离、循环事务回滚、收录变更合并、跨范围删除撤销、直接成员展示与主画布选择恢复，以及短 ID 校验、核心独立操作、无画布会话保存与界面状态隔离。已确认开发范围见 `design.md` 的 1.3～1.7、1.9～1.10 节；其他产品目标留待逐轮确认。

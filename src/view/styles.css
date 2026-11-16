@@ -40,9 +40,10 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 
 /* React Flow remains responsible for selection, ports and dragging. */
 .react-flow { --xy-node-background-color-default: #fff; --xy-node-border-default: 1px solid #b4bdca; --xy-edge-stroke-default: #a0a8b5; --xy-edge-stroke-selected-default: #386bfa; --xy-edge-stroke-width-default: 1.2; --xy-selection-background-color-default: #386bfa0a; --xy-selection-border-default: 1px solid #386bfa99; }
-.react-flow__node-default { width: 172px; min-height: 54px; padding: 17px 19px; border-radius: 7px; text-align: left; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 14px; line-height: 18px; color: #293244; box-shadow: none; }
-.react-flow__node-default:hover { border-color: #8796ad; }
-.react-flow__node-default.selected, .react-flow__node-default:focus-visible { background: #edf2ff; border-color: var(--accent); box-shadow: 0 0 0 1px #386bfa16; outline: none; }
+.react-flow__node-anchor { background: var(--xy-node-background-color-default); border: var(--xy-node-border-default); width: 172px; min-height: 54px; padding: 17px 19px; border-radius: 7px; text-align: left; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 14px; line-height: 18px; color: #293244; box-shadow: none; }
+.react-flow__node-anchor .nowheel { overscroll-behavior: contain; }
+.react-flow__node-anchor:hover { border-color: #8796ad; }
+.react-flow__node-anchor.selected, .react-flow__node-anchor:focus-visible { background: #edf2ff; border-color: var(--accent); box-shadow: 0 0 0 1px #386bfa16; outline: none; }
 .react-flow__handle { width: 8px; height: 8px; border: 2px solid #fcfdff; background: #a0aabd; opacity: 0; transition: opacity 100ms ease; }
 .react-flow__node:hover .react-flow__handle, .react-flow__node.selected .react-flow__handle, .react-flow__node:focus-within .react-flow__handle, .is-connecting .react-flow__handle { opacity: 1; }
 .react-flow__node.selected .react-flow__handle { background: var(--accent); }
