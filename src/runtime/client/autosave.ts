@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance } from 'axios';
-import type { GraphData } from '../shared/model.js';
-import type { Receipt } from '../shared/protocol.js';
-import type { GraphStore } from './graph-store.js';
+import type { GraphData } from '../document.js';
+import type { Receipt } from '../protocol.js';
+import type { SessionStore } from './session.js';
 
 // Axios handles HTTP, JSON, timeout and cancellation. This class only coordinates
 // the application's frozen in-flight batch and the next pending changes.
@@ -13,7 +13,7 @@ export class Autosave {
   private generation = 0;
   private unsubscribe: () => void;
 
-  constructor(private store: GraphStore, private http: AxiosInstance = axios.create({ baseURL: '/api', timeout: 10_000 })) {
+  constructor(private store: SessionStore, private http: AxiosInstance = axios.create({ baseURL: '/api', timeout: 10_000 })) {
     this.unsubscribe = store.subscribe(() => this.schedule());
   }
 

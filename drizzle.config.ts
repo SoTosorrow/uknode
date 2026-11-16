@@ -7,7 +7,7 @@ mkdirSync(dataDir, { recursive: true });
 
 export default defineConfig({
   dialect: 'sqlite',
-  schema: './src/backend/schema.ts',
+  schema: './src/storage/schema.ts',
   out: './migrations',
   dbCredentials: { url: resolve(dataDir, 'uknode.sqlite') },
   migrations: { table: 'base_schema_migrations' },

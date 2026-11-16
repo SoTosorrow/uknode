@@ -10,5 +10,5 @@
     "outDir": "dist/server",
     "types": ["node"]
   },
-  "include": ["src/backend", "src/shared"]
+  "include": ["src/app/backend", "src/runtime/server", "src/storage", "src/core"]
 }

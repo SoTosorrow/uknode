@@ -1,21 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { nanoid } from 'nanoid';
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
-import { createGraphStore } from '../src/frontend/graph-store.js';
-import { Autosave } from '../src/frontend/autosave.js';
-import { openDatabase } from '../src/backend/database.js';
-import { createApp } from '../src/backend/routes.js';
-import type { GraphData } from '../src/shared/model.js';
+import { createTestEditor } from './fixtures.js';
+import { Autosave } from '../src/runtime/client/autosave.js';
+import { openTestGraph } from './fixtures.js';
+import { createApp } from '../src/app/backend/routes.js';
+import type { GraphData } from '../src/runtime/document.js';
 
 const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
-const loadedStore = () => { const store = createGraphStore(); store.getState().hydrate(empty); return store; };
+const loadedStore = () => { const store = createTestEditor(); store.getState().hydrate(empty); return store; };
 
 test('pending changes coalesce; creating then deleting unsent objects leaves no writes', () => {
   const store = loadedStore();
   const a = store.getState().createNode(0, 0), b = store.getState().createNode(100, 100);
   store.getState().createEdge(a, b);
   const edge = Object.keys(store.getState().edges)[0];
+  for (const id of [a, b, edge]) assert.match(id, /^[A-Za-z0-9_-]{12}$/);
+  assert.equal(new Set([a, b, edge]).size, 3);
   store.getState().updateEdge(edge, { label: 'first' });
   store.getState().updateEdge(edge, { label: 'final' });
   const changes = Object.values(store.getState().pending);
@@ -26,6 +28,27 @@ test('pending changes coalesce; creating then deleting unsent objects leaves no 
   assert.deepEqual(store.getState().nodes, {});
   assert.deepEqual(store.getState().edges, {});
   assert.deepEqual(store.getState().layouts, {});
+});
+
+test('ID collisions retry against loaded objects, pending creations and deleted session objects', () => {
+  const a = 'nodeExisting', edgeId = 'edgeExisting', b = 'nodeCreated1', c = 'nodeCreated2', newEdge = 'edgeCreated1';
+  const candidates = [a, edgeId, b, b, a, c, c, edgeId, b, newEdge];
+  const store = createTestEditor(() => {
+    const id = candidates.shift();
+    assert(id, 'unexpected extra generation attempt');
+    return id;
+  });
+  store.getState().hydrate({ ...empty, nodes: [{ id: a }], edges: [{ id: edgeId, source: a, target: a, directed: false, label: '' }] });
+  assert.equal(store.getState().createNode(10, 20), b);
+  assert.equal(store.getState().createNode(30, 40), c);
+  store.getState().select([b], []);
+  store.getState().deleteSelection();
+  store.getState().createEdge(a, c);
+  assert.deepEqual(Object.keys(store.getState().edges), [edgeId, newEdge]);
+  assert.equal(candidates.length, 0);
+  store.getState().undo(); // Remove the new edge.
+  store.getState().undo(); // Restore the deleted node under its original ID.
+  assert.deepEqual(Object.keys(store.getState().nodes).sort(), [a, b, c].sort());
 });
 
 test('acknowledging an in-flight create preserves the newer pending delete', () => {
@@ -44,7 +67,7 @@ test('acknowledging an in-flight create preserves the newer pending delete', () 
 
 test('drag frames do not queue writes; drag and cascaded deletion undo restore the original objects', () => {
   const store = loadedStore();
-  const a = randomUUID(), b = randomUUID(), edge = { id: randomUUID(), source: a, target: b, label: '', directed: false };
+  const a = nanoid(12), b = nanoid(12), edge = { id: nanoid(12), source: a, target: b, label: '', directed: false };
   const start = { contextNodeId: null, nodeId: a, x: 1, y: 2 }, end = { contextNodeId: null, nodeId: a, x: 60, y: 70 };
   store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], memberships: [], layouts: [start, { contextNodeId: null, nodeId: b, x: 100, y: 100 }] });
   store.getState().previewPositions([{ ...start, x: 30 }]);
@@ -73,7 +96,7 @@ function httpFor(app: ReturnType<typeof createApp>, after?: (config: InternalAxi
 }
 
 test('a lost success response retries the identical batch and then saves newer edits once', async t => {
-  const db = openDatabase(':memory:'), app = createApp(db), store = createGraphStore();
+  const db = openTestGraph(':memory:'), app = createApp(db), store = createTestEditor();
   const bodies: string[] = [];
   let loseResponse = true;
   const http = httpFor(app, async config => {
@@ -81,7 +104,7 @@ test('a lost success response retries the identical batch and then saves newer e
     bodies.push(config.data);
     if (loseResponse) { loseResponse = false; throw new AxiosError('lost response', 'ERR_NETWORK'); }
   });
-  const saver = new Autosave(store, http);
+  const saver = new Autosave(store.session, http);
   t.after(async () => { saver.dispose(); await app.close(); });
   await saver.load();
   const id = store.getState().createNode(5, 6);
@@ -102,12 +125,12 @@ test('a lost success response retries the identical batch and then saves newer e
 });
 
 test('edits made while a response is pending remain in the next batch', async t => {
-  const db = openDatabase(':memory:'), app = createApp(db), store = createGraphStore();
+  const db = openTestGraph(':memory:'), app = createApp(db), store = createTestEditor();
   let release!: () => void;
   let entered!: () => void;
   const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const saver = new Autosave(store, httpFor(app, async config => { if (config.url === '/changes') { entered(); await gate; } }));
+  const saver = new Autosave(store.session, httpFor(app, async config => { if (config.url === '/changes') { entered(); await gate; } }));
   t.after(async () => { saver.dispose(); await app.close(); });
   await saver.load();
   const id = store.getState().createNode(1, 2);
@@ -123,9 +146,9 @@ test('edits made while a response is pending remain in the next batch', async t 
 });
 
 test('revision conflict preserves edits without enabling an unsafe retry', async t => {
-  const db = openDatabase(':memory:'), app = createApp(db);
-  const first = createGraphStore(), second = createGraphStore();
-  const a = new Autosave(first, httpFor(app)), b = new Autosave(second, httpFor(app));
+  const db = openTestGraph(':memory:'), app = createApp(db);
+  const first = createTestEditor(), second = createTestEditor();
+  const a = new Autosave(first.session, httpFor(app)), b = new Autosave(second.session, httpFor(app));
   t.after(async () => { a.dispose(); b.dispose(); await app.close(); });
   await a.load(); await b.load();
   first.getState().createNode(0, 0); await a.flush();

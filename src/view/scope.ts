@@ -1,8 +1,8 @@
-import { layoutKey, type NodeLayout } from '../shared/model.js';
-import { directMemberIds } from '../shared/memberships.js';
-import type { GraphObjects } from './history.js';
+import { layoutKey, type NodeLayout } from '../runtime/document.js';
+import { directMemberIds } from '../core/traversal.js';
+import type { DocumentObjects } from '../runtime/document.js';
 
-export function scopeNodeIds(graph: GraphObjects, contextNodeId: string | null): string[] {
+export function scopeNodeIds(graph: DocumentObjects, contextNodeId: string | null): string[] {
   if (contextNodeId === null) return Object.keys(graph.nodes);
   if (!graph.nodes[contextNodeId]) return [];
   const members = new Set(directMemberIds(Object.values(graph.memberships), contextNodeId));
@@ -11,7 +11,7 @@ export function scopeNodeIds(graph: GraphObjects, contextNodeId: string | null):
 
 // Membership determines visibility. Layout rows alone never include an object.
 // Missing positions get an initial grid; browsing does not write to SQLite.
-export function projectScope(graph: GraphObjects, contextNodeId: string | null, previews: Record<string, NodeLayout> = {}) {
+export function projectScope(graph: DocumentObjects, contextNodeId: string | null, previews: Record<string, NodeLayout> = {}) {
   const nodeIds = scopeNodeIds(graph, contextNodeId), visible = new Set(nodeIds);
   const layouts: Record<string, NodeLayout> = {};
   nodeIds.forEach((nodeId, index) => {

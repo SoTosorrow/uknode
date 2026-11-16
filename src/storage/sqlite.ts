@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import SQLite from 'better-sqlite3';
@@ -6,35 +5,14 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { and, eq, isNull, lte } from 'drizzle-orm';
 import * as tables from './schema.js';
-import type { GraphData, NodeLayout, Membership } from '../shared/model.js';
-import { hasMembershipCycle } from '../shared/memberships.js';
-import { changeKey, type ChangeBatch, type Receipt } from '../shared/protocol.js';
+import type { Membership } from '../core/model.js';
+import type { GraphData, NodeLayout } from '../runtime/document.js';
+import { validateGraphReference, validateMemberships } from '../core/graph.js';
+import type { Change } from '../runtime/protocol.js';
+import type { GraphStorage } from '../runtime/server/batches.js';
+import { WriteError } from '../runtime/errors.js';
 
-export class WriteError extends Error {
-  constructor(public statusCode: number, public code: string, message: string) {
-    super(message);
-  }
-}
-
-function payloadHash(batch: ChangeBatch): string {
-  // Hash semantic fields in a fixed order, independent of JSON object key order.
-  const changes = batch.changes.map(change => {
-    switch (change.type) {
-      case 'node.put': return [change.type, change.node.id];
-      case 'node.delete': case 'edge.delete': return [change.type, change.id];
-      case 'edge.put': {
-        const { id, source, target, directed, label } = change.edge;
-        return [change.type, id, source, target, directed, label];
-      }
-      case 'membership.put': case 'membership.delete': return [change.type, change.membership.containerId, change.membership.memberId];
-      case 'layout.put': return [change.type, change.layout.contextNodeId, change.layout.nodeId, change.layout.x, change.layout.y];
-      case 'layout.delete': return [change.type, change.layout.contextNodeId, change.layout.nodeId];
-    }
-  });
-  return createHash('sha256').update(JSON.stringify([batch.expectedRevision, changes])).digest('hex');
-}
-
-export function openDatabase(filename: string) {
+export function openDatabase(filename: string): GraphStorage {
   if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
   const sqlite = new SQLite(filename);
   const db = drizzle(sqlite);
@@ -68,39 +46,26 @@ export function openDatabase(filename: string) {
     }));
   }
 
-  function applyBatch(batch: ChangeBatch): Receipt {
-    const hash = payloadHash(batch);
-    return db.transaction(tx => {
-      // A retry may arrive after a successful write whose response was lost.
-      // Check the receipt before rejecting its now-old expectedRevision.
-      const receipt = tx.select().from(baseBatchReceipts).where(eq(baseBatchReceipts.batchId, batch.batchId)).get();
-      if (receipt) {
-        if (receipt.payloadHash !== hash) throw new WriteError(409, 'BATCH_MISMATCH', '同一批次 ID 的内容不一致');
-        return { batchId: receipt.batchId, revision: receipt.revision };
-      }
-      const { revision } = tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!;
-      if (revision !== batch.expectedRevision) throw new WriteError(409, 'REVISION_CONFLICT', '数据库已被其他页面修改；当前修改仍保留在本页');
-      const keys = batch.changes.map(changeKey);
-      if (new Set(keys).size !== keys.length) throw new WriteError(400, 'DUPLICATE_CHANGE', '同一批次中每个对象只能出现一次');
-
-      for (const change of batch.changes) {
+  const transaction: GraphStorage['transaction'] = work => db.transaction(tx => work({
+    getReceipt: batchId => tx.select().from(baseBatchReceipts).where(eq(baseBatchReceipts.batchId, batchId)).get(),
+    getRevision: () => tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!.revision,
+    applyChanges(changes: Change[]) {
+      for (const change of changes) {
         if (change.type === 'edge.delete') tx.delete(baseEdges).where(eq(baseEdges.id, change.id)).run();
         if (change.type === 'membership.delete') tx.delete(baseMemberships).where(membershipWhere(change.membership)).run();
         if (change.type === 'layout.delete') tx.delete(viewNodeLayouts).where(layoutWhere(change.layout)).run();
         if (change.type === 'node.delete') tx.delete(baseNodes).where(eq(baseNodes.id, change.id)).run();
       }
       const now = Date.now();
-      for (const change of batch.changes) {
+      for (const change of changes) {
         if (change.type !== 'node.put') continue;
         tx.insert(baseNodes).values({ ...change.node, createdAt: now, updatedAt: now })
           .onConflictDoNothing({ target: baseNodes.id }).run();
       }
       const nodeExists = (id: string) => Boolean(tx.select({ id: baseNodes.id }).from(baseNodes).where(eq(baseNodes.id, id)).get());
-      for (const change of batch.changes) {
+      for (const change of changes) {
+        if (change.type !== 'layout.put' && change.type !== 'layout.delete') validateGraphReference(change, nodeExists);
         if (change.type === 'membership.put') {
-          const { containerId, memberId } = change.membership;
-          if (!nodeExists(containerId) || !nodeExists(memberId)) throw new WriteError(400, 'MISSING_MEMBER', '收录关系对应的节点不存在');
-          if (containerId === memberId) throw new WriteError(400, 'MEMBERSHIP_CYCLE', '节点不能收录自身或形成包含循环');
           tx.insert(baseMemberships).values({ ...change.membership, createdAt: now }).onConflictDoNothing().run();
         }
         if (change.type === 'layout.put') {
@@ -113,24 +78,21 @@ export function openDatabase(filename: string) {
         }
         if (change.type === 'edge.put') {
           const edge = change.edge;
-          if (!nodeExists(edge.source) || !nodeExists(edge.target)) throw new WriteError(400, 'MISSING_ENDPOINT', '连线的端点不存在');
           tx.insert(baseEdges).values({ ...edge, createdAt: now, updatedAt: now })
             .onConflictDoUpdate({ target: baseEdges.id, set: { ...edge, updatedAt: now } }).run();
         }
       }
-      if (batch.changes.some(change => change.type === 'membership.put')) {
+      if (changes.some(change => change.type === 'membership.put')) {
         const memberships = tx.select({ containerId: baseMemberships.containerId, memberId: baseMemberships.memberId }).from(baseMemberships).all();
-        if (hasMembershipCycle(memberships)) throw new WriteError(400, 'MEMBERSHIP_CYCLE', '收录会形成包含循环，整批修改未写入');
+        validateMemberships(memberships);
       }
-      const nextRevision = revision + 1;
-      tx.update(baseStoreState).set({ revision: nextRevision }).where(eq(baseStoreState.id, 1)).run();
-      tx.insert(baseBatchReceipts).values({ batchId: batch.batchId, payloadHash: hash, revision: nextRevision }).run();
-      tx.delete(baseBatchReceipts).where(lte(baseBatchReceipts.revision, nextRevision - 1000)).run();
-      return { batchId: batch.batchId, revision: nextRevision };
-    }, { behavior: 'immediate' });
-  }
+    },
+    recordReceipt(batchId, hash, revision) {
+      tx.update(baseStoreState).set({ revision }).where(eq(baseStoreState.id, 1)).run();
+      tx.insert(baseBatchReceipts).values({ batchId, payloadHash: hash, revision }).run();
+      tx.delete(baseBatchReceipts).where(lte(baseBatchReceipts.revision, revision - 1000)).run();
+    },
+  }), { behavior: 'immediate' });
 
-  return { readGraph, applyBatch, close: () => sqlite.close() };
+  return { readGraph, transaction, close: () => sqlite.close() };
 }
-
-export type GraphDatabase = ReturnType<typeof openDatabase>;

@@ -1,12 +1,6 @@
-import { layoutKey, membershipKey, type BaseNode, type BaseEdge, type NodeLayout, type Membership } from '../shared/model.js';
-import { changeKey, type Change } from '../shared/protocol.js';
-
-export interface GraphObjects {
-  nodes: Record<string, BaseNode>;
-  edges: Record<string, BaseEdge>;
-  layouts: Record<string, NodeLayout>;
-  memberships: Record<string, Membership>;
-}
+import { membershipKey } from '../../core/model.js';
+import { layoutKey, type DocumentObjects } from '../document.js';
+import { changeKey, type Change } from '../protocol.js';
 
 export interface HistoryEntry {
   undo: Change[];
@@ -15,7 +9,7 @@ export interface HistoryEntry {
   time: number;
 }
 
-export function invertChanges(graph: GraphObjects, changes: Change[]): Change[] {
+export function invertChanges(graph: DocumentObjects, changes: Change[]): Change[] {
   const inverse: Change[] = [];
   for (const change of changes) {
     switch (change.type) {

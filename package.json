@@ -5,10 +5,10 @@
   "type": "module",
   "engines": { "node": ">=24 <25" },
   "scripts": {
-    "dev": "tsx watch src/backend/index.ts --dev",
+    "dev": "tsx watch src/app/backend/index.ts --dev",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "build": "npm run typecheck && tsc -p tsconfig.server.json && vite build",
-    "start": "node dist/server/backend/index.js",
+    "start": "node dist/server/app/backend/index.js",
     "test": "node --import tsx --test tests/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
@@ -20,6 +20,7 @@
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.8",
+    "nanoid": "6.0.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zustand": "5.1.0"

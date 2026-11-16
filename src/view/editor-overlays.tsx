@@ -1,8 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useReactFlow, useViewport } from '@xyflow/react';
-import type { GraphState } from './graph-store.js';
-import type { Autosave } from './autosave.js';
-import type { NodeLayout } from '../shared/model.js';
+import type { EditorState } from './editor-store.js';
+import type { Autosave } from '../runtime/client/autosave.js';
+import type { NodeLayout } from '../runtime/document.js';
 import { MembershipEditor } from './scope-controls.js';
 
 type IconName = 'plus' | 'minus' | 'trash' | 'undo' | 'redo' | 'fit' | 'check' | 'chevron' | 'close' | 'unlink';
@@ -35,7 +35,7 @@ export function CanvasControls() {
   </div>;
 }
 
-export function DetailsPanel({ state, saver, layouts }: { state: GraphState; saver: Autosave; layouts: Record<string, NodeLayout> }) {
+export function DetailsPanel({ state, saver, layouts }: { state: EditorState; saver: Autosave; layouts: Record<string, NodeLayout> }) {
   const [collapsed, setCollapsed] = useState(false);
   const contentId = useId();
   const nodeIds = state.selectedNodes.filter(id => state.nodes[id]);
@@ -57,8 +57,8 @@ export function DetailsPanel({ state, saver, layouts }: { state: GraphState; sav
         <MembershipEditor key={`${state.contextNodeId}:${node.id}`} nodeId={node.id} state={state} />
       </> : edge ? <>
         <dl className="endpoint-list">
-          <div><dt>起点</dt><dd><code title={edge.source}>{edge.source.slice(0, 8)}</code></dd></div>
-          <div><dt>终点</dt><dd><code title={edge.target}>{edge.target.slice(0, 8)}</code></dd></div>
+          <div><dt>起点</dt><dd><code>{edge.source}</code></dd></div>
+          <div><dt>终点</dt><dd><code>{edge.target}</code></dd></div>
         </dl>
         <label className="detail-field">连线说明<textarea disabled={state.loading} maxLength={300} value={edge.label} placeholder="添加连线说明" onChange={event => state.updateEdge(edge.id, { label: event.target.value })} onBlur={() => void saver.flush()} /></label>
         <label className="direction-field"><input type="checkbox" disabled={state.loading} checked={edge.directed} onChange={event => state.updateEdge(edge.id, { directed: event.target.checked })} />有方向</label>

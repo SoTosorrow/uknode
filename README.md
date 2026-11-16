@@ -2,6 +2,10 @@
 
 本地节点与连线编辑器。支持节点和连线编辑、多父级收录、按范围浏览与独立布局，以及 SQLite 自动增量保存和会话撤销重做。节点以短 ID 显示，没有名称、笔记等业务字段。界面采用细线框节点、点阵画布和悬浮工具条，支持框选与右键菜单。
 
+节点是稳定锚点、业务数据挂载点，也可以作为其他节点的结构容器。业务数据通过节点 ID 关联；节点之间通过 `base_memberships` 挂载。基础节点与挂载关系不预设业务意义，名称、内容、参数及行为由独立业务模块解释。当前“收录”弹窗是默认的结构浏览方式。定义及待确认的业务接入点见 [`design.md` 第 2 节](design.md#2-核心概念与边界)。
+
+节点、连线和保存批次统一使用 `nanoid(12)` 生成 12 位 ID（大小写字母、数字、`_` 和 `-`）。节点和连线生成时避开已加载及本次会话用过的 ID。界面直接完整显示 ID，接口只接受这一种格式；SQLite 使用 TEXT 字段存储。
+
 ## 运行
 
 需要 Node.js 24。在项目根目录运行：
@@ -26,13 +30,13 @@ npm start
 
 ## 数据库定义与同步
 
-**表结构的定义来源是 [`src/backend/schema.ts`](src/backend/schema.ts)**。里面明确声明表名、字段、主键、外键、索引和检查约束：
+**表结构的定义来源是 [`src/storage/schema.ts`](src/storage/schema.ts)**。里面明确声明表名、字段、主键、外键、索引和检查约束：
 
 | 定义 | SQLite 表 | 职责 |
 | --- | --- | --- |
-| `baseNodes` | `base_nodes` | 节点 ID、创建与更新时间；没有业务字段 |
+| `baseNodes` | `base_nodes` | 稳定锚点的 ID、创建与更新时间；没有业务字段 |
 | `baseEdges` | `base_edges` | 两端节点 ID、方向、可选说明及时间 |
-| `baseMemberships` | `base_memberships` | 直接收录关系，多父级且禁止包含循环 |
+| `baseMemberships` | `base_memberships` | 无预设业务意义的直接挂载；当前支持多父级，禁止循环 |
 | `viewNodeLayouts` | `view_node_layouts` | 各范围的独立坐标；`context_node_id` 为空表示全局画布 |
 | `baseStoreState` | `base_store_state` | 当前修订号 |
 | `baseBatchReceipts` | `base_batch_receipts` | 最近 1,000 个批次的幂等回执；没有操作内容 |
@@ -41,7 +45,7 @@ npm start
 
 修改表结构的流程：
 
-1. 修改 `src/backend/schema.ts`。
+1. 修改 `src/storage/schema.ts`。
 2. 运行 `npm run db:generate -- --name=变更名称`，由 Drizzle Kit 生成 `migrations/` 下的 SQL 与结构快照。
 3. 查看生成的 SQL。变更已有数据前，先备份当前数据库。
 4. 运行 `npm run db:migrate`，将迁移应用到 SQLite；启动服务也会应用尚未执行的迁移。
@@ -85,10 +89,18 @@ npm start
 
 ## 代码位置与验证
 
-- `src/frontend/`：页面、图数据状态、变更队列和会话撤销。
-- `src/backend/`：本地服务、接口、Drizzle 表定义和 SQLite 事务。
-- `src/shared/`：基础类型、直接成员与后代查询、包含循环检查，以及增量提交协议。
-- `src/frontend/scope.ts`：从全库数据计算直接成员、成员之间的连线和独立坐标；`membership-dialog.tsx` 提供弹窗和浏览路径；`scope-controls.tsx` 提供收录选择和详情入口。
+| 目录 | 职责与主要文件 |
+| --- | --- |
+| `src/core/` | `model.ts` 定义锚点和关系；`changes.ts` 定义基础变更；`graph.ts` 应用变更、删除关联和校验结构；`traversal.ts` 查询成员、后代和检查循环。纯函数，不依赖画布、存储或运行协调层。 |
+| `src/runtime/` | `document.ts` 组合图和持久布局，`protocol.ts` 定义保存批次和 HTTP 校验，`errors.ts` 定义写入错误。 |
+| `src/runtime/client/` | `session.ts` 管理文档、待保存变更和回执；`history.ts` 管理会话撤销；`autosave.ts` 协调 HTTP 保存。没有选中、弹窗导航或拖拽预览状态。 |
+| `src/runtime/server/` | `batches.ts` 通过存储接口协调修订检查、幂等回执和批次提交，不直接使用 SQLite 或 Drizzle。 |
+| `src/view/` | React 画布和详情组件；`editor-store.ts` 单独管理选择、导航及拖拽预览，并组合编辑动作；`scope.ts` 提供默认收录浏览。 |
+| `src/storage/` | `schema.ts` 声明数据库结构；`sqlite.ts` 实现一致读取、事务和 SQL 写入，在事务内调用核心结构校验。 |
+| `src/app/` | `frontend/main.tsx` 装配会话、画布和自动保存；`backend/index.ts` 装配存储、批次服务和 HTTP 路由。 |
+
+图操作可以直接调用 `core`；不需要画布的编辑可以使用 `createSessionStore()`。界面通过 `createEditor(session)` 接入会话，并维护独立的画布状态。业务模块、能力注册、节点激活执行和自动沿图运行尚未实现。
+
 - `migrations/`：Drizzle Kit 生成的结构迁移。
 - `tests/`：真实 SQLite/Fastify 测试，以及通过 Axios 适配器验证保存队列。
 
@@ -97,4 +109,4 @@ npm test
 npm run build
 ```
 
-`npm run build` 包含前后端 TypeScript 检查。测试包含旧结构迁移、范围布局隔离、循环事务回滚、收录变更合并、跨范围删除撤销、直接成员展示与主画布选择恢复。已确认范围见 `design.md` 的 1.3～1.6 节；其他产品目标留待逐轮确认。
+`npm run build` 包含前后端 TypeScript 检查。测试包含旧结构迁移、范围布局隔离、循环事务回滚、收录变更合并、跨范围删除撤销、直接成员展示与主画布选择恢复，以及短 ID 校验、核心独立操作、无画布会话保存与界面状态隔离。已确认开发范围见 `design.md` 的 1.3～1.7、1.9 节；其他产品目标留待逐轮确认。

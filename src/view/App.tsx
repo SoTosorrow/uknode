@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useStore } from 'zustand';
+import { useEditorState } from './use-editor.js';
 import {
   ReactFlow, ReactFlowProvider, Background, BaseEdge, EdgeLabelRenderer, MarkerType, Position, SelectionMode, useReactFlow,
   type Node, type Edge, type EdgeProps, type NodeChange, type EdgeChange,
 } from '@xyflow/react';
-import type { NodeLayout } from '../shared/model.js';
-import type { GraphStore } from './graph-store.js';
-import type { Autosave } from './autosave.js';
+import type { NodeLayout } from '../runtime/document.js';
+import type { Editor as EditorController } from './editor-store.js';
+import type { Autosave } from '../runtime/client/autosave.js';
 import { CanvasControls, CanvasMenu, DetailsPanel, Icon, type CanvasMenuState } from './editor-overlays.js';
 import { MembershipDialog } from './membership-dialog.js';
 import { projectScope } from './scope.js';
@@ -35,8 +36,8 @@ function RelationEdge(props: EdgeProps<Relation>) {
 const edgeTypes = { relation: RelationEdge };
 const noPreviews: Record<string, NodeLayout> = {};
 
-function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Autosave; contextNodeId: string | null }) {
-  const currentState = useStore(store);
+function Editor({ editor, saver, contextNodeId }: { editor: EditorController; saver: Autosave; contextNodeId: string | null }) {
+  const currentState = useEditorState(editor);
   const active = currentState.contextNodeId === contextNodeId;
   const inDialog = contextNodeId !== null;
   const state = active ? currentState : {
@@ -64,7 +65,7 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
   }, [scope.layouts, previews, state.contextNodeId]);
   // Keep labels and edge grouping stable during drag previews and selection.
   const nodeTemplates = useMemo<Node[]>(() => scope.nodeIds.map(id => ({
-    id, data: { label: id.slice(0, 8) },
+    id, data: { label: id },
     position: scope.layouts[id],
     sourcePosition: Position.Right, targetPosition: Position.Left,
   })), [scope, state.contextNodeId]);
@@ -109,18 +110,18 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
   useEffect(() => { closeMenu(); }, [active, state.contextNodeId, closeMenu]);
 
   const deleteSelected = useCallback(() => {
-    const current = store.getState(), selected = new Set(current.selectedNodes);
+    const current = editor.getState(), selected = new Set(current.selectedNodes);
     if (current.contextNodeId !== contextNodeId) return;
     const references = Object.values(current.memberships).filter(m => selected.has(m.containerId) || selected.has(m.memberId));
     if (references.length && !window.confirm(`彻底删除 ${selected.size} 个节点，将清理 ${references.length} 条收录关系及关联连线。未选中的成员节点会保留。继续？`)) return;
     current.deleteSelection();
-  }, [store, contextNodeId]);
+  }, [editor, contextNodeId]);
 
   useEffect(() => {
     if (!active) return;
     function onKeyDown(event: KeyboardEvent) {
       if ((event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"], [role="menu"]')) return;
-      const current = store.getState();
+      const current = editor.getState();
       if (!current.loaded || current.loading || current.contextNodeId !== contextNodeId) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
@@ -135,10 +136,10 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, contextNodeId, store, deleteSelected]);
+  }, [active, contextNodeId, editor, deleteSelected]);
 
   function onNodesChange(changes: NodeChange[]) {
-    const current = store.getState();
+    const current = editor.getState();
     if (current.contextNodeId !== contextNodeId) return;
     const selection = new Set(current.selectedNodes);
     let currentScope: ReturnType<typeof projectScope> | undefined;
@@ -160,7 +161,7 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
     if (after.length) current.commitPositions(before, after);
   }
   function onEdgesChange(changes: EdgeChange[]) {
-    const current = store.getState(), selection = new Set(current.selectedEdges);
+    const current = editor.getState(), selection = new Set(current.selectedEdges);
     if (current.contextNodeId !== contextNodeId) return;
     for (const change of changes) if (change.type === 'select') {
       if (change.selected) selection.add(change.id); else selection.delete(change.id);
@@ -171,7 +172,7 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
   function openMenu(event: ReactMouseEvent | MouseEvent, nodeId?: string, selectedIds?: string[]) {
     event.preventDefault();
     event.stopPropagation();
-    const current = store.getState();
+    const current = editor.getState();
     if (!canEdit || !current.loaded || current.loading) return;
     const nodeIds = selectedIds ?? (nodeId ? current.selectedNodes.includes(nodeId) ? current.selectedNodes : [nodeId] : []);
     current.select(nodeIds, []);
@@ -180,12 +181,12 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
   }
   function startDrag(moved: Node[]) {
     closeMenu();
-    const current = store.getState();
+    const current = editor.getState();
     const currentScope = projectScope(current, current.contextNodeId);
     dragBefore.current = moved.map(node => currentScope.layouts[node.id]).filter(Boolean);
   }
   function finishDrag(moved: Node[]) {
-    const current = store.getState();
+    const current = editor.getState();
     current.commitPositions(dragBefore.current, moved.map(node => ({ contextNodeId: current.contextNodeId, nodeId: node.id, ...node.position })));
     dragBefore.current = [];
   }
@@ -251,19 +252,19 @@ function Editor({ store, saver, contextNodeId }: { store: GraphStore; saver: Aut
   </section>;
 }
 
-export function App(props: { store: GraphStore; saver: Autosave }) {
-  const contextNodeId = useStore(props.store, state => state.contextNodeId);
+export function App(props: { editor: EditorController; saver: Autosave }) {
+  const contextNodeId = useStore(props.editor.view, state => state.contextNodeId);
   useEffect(() => {
     function beforeUnload(event: BeforeUnloadEvent) {
-      const current = props.store.getState();
+      const current = props.editor.getState();
       if (current.inFlight || Object.keys(current.pending).length) { event.preventDefault(); event.returnValue = ''; }
     }
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [props.store]);
+  }, [props.editor]);
   return <>
     <ReactFlowProvider><Editor {...props} contextNodeId={null} /></ReactFlowProvider>
-    {contextNodeId !== null && <MembershipDialog store={props.store}>
+    {contextNodeId !== null && <MembershipDialog editor={props.editor}>
       <ReactFlowProvider><Editor {...props} contextNodeId={contextNodeId} /></ReactFlowProvider>
     </MembershipDialog>}
   </>;

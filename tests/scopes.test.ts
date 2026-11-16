@@ -1,20 +1,22 @@
+import { membershipKey } from '../src/core/model.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { nanoid } from 'nanoid';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import SQLite from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { openDatabase, WriteError } from '../src/backend/database.js';
-import { createGraphStore } from '../src/frontend/graph-store.js';
-import { projectScope } from '../src/frontend/scope.js';
-import { directMemberIds, descendantIds } from '../src/shared/memberships.js';
-import { layoutKey, membershipKey, type GraphData } from '../src/shared/model.js';
-import type { Change, ChangeBatch } from '../src/shared/protocol.js';
+import { openTestGraph } from './fixtures.js';
+import { WriteError } from '../src/runtime/errors.js';
+import { createTestEditor } from './fixtures.js';
+import { projectScope } from '../src/view/scope.js';
+import { directMemberIds, descendantIds } from '../src/core/traversal.js';
+import { layoutKey, type GraphData } from '../src/runtime/document.js';
+import type { Change, ChangeBatch } from '../src/runtime/protocol.js';
 
-const batch = (expectedRevision: number, changes: Change[]): ChangeBatch => ({ batchId: randomUUID(), expectedRevision, changes });
+const batch = (expectedRevision: number, changes: Change[]): ChangeBatch => ({ batchId: nanoid(12), expectedRevision, changes });
 const putMember = (containerId: string, memberId: string): Change => ({ type: 'membership.put', membership: { containerId, memberId } });
 const dropMember = (containerId: string, memberId: string): Change => ({ type: 'membership.delete', membership: { containerId, memberId } });
 const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
@@ -28,7 +30,7 @@ test('upgrading the original populated schema preserves global coordinates and e
   journal.entries = journal.entries.slice(0, 1);
   writeFileSync(join(firstMigration, 'meta/_journal.json'), JSON.stringify(journal));
   writeFileSync(join(firstMigration, '0000_initial.sql'), readFileSync('migrations/0000_initial.sql'));
-  const file = join(dir, 'graph.sqlite'), id = randomUUID();
+  const file = join(dir, 'graph.sqlite'), id = nanoid(12);
   const old = new SQLite(file);
   migrate(drizzle(old), { migrationsFolder: firstMigration, migrationsTable: 'base_schema_migrations' });
   old.prepare('INSERT INTO base_nodes VALUES (?, ?, ?)').run(id, 10, 20);
@@ -36,7 +38,7 @@ test('upgrading the original populated schema preserves global coordinates and e
   old.prepare('INSERT INTO base_store_state VALUES (1, 7)').run();
   old.close();
 
-  const upgraded = openDatabase(file);
+  const upgraded = openTestGraph(file);
   assert.deepEqual(upgraded.readGraph(), { revision: 7, nodes: [{ id }], edges: [], memberships: [], layouts: [{ contextNodeId: null, nodeId: id, x: -175.25, y: 48.5 }] });
   upgraded.applyBatch(batch(7, [{ type: 'layout.put', layout: { contextNodeId: id, nodeId: id, x: 100, y: 200 } }]));
   upgraded.close();
@@ -48,14 +50,14 @@ test('upgrading the original populated schema preserves global coordinates and e
     assert.throws(() => check.prepare('INSERT INTO view_node_layouts VALUES (NULL, ?, 0, 0)').run(id), /UNIQUE/);
     assert.throws(() => check.prepare('INSERT INTO view_node_layouts VALUES (?, ?, 0, 0)').run(id, id), /UNIQUE/);
   } finally { check.close(); }
-  const reopened = openDatabase(file);
+  const reopened = openTestGraph(file);
   assert.equal(reopened.readGraph().layouts.length, 2);
   reopened.close();
 });
 
 test('multiple parents and indirect paths deduplicate; cycles roll back the complete transaction', t => {
-  const db = openDatabase(':memory:'); t.after(() => db.close());
-  const a = randomUUID(), b = randomUUID(), n = randomUUID(), other = randomUUID();
+  const db = openTestGraph(':memory:'); t.after(() => db.close());
+  const a = nanoid(12), b = nanoid(12), n = nanoid(12), other = nanoid(12);
   db.applyBatch(batch(0, [a, b, n, other].map(id => ({ type: 'node.put', node: { id } }))));
   db.applyBatch(batch(1, [putMember(a, n), putMember(a, b), putMember(b, n)]));
   assert.deepEqual(new Set(directMemberIds(db.readGraph().memberships, a)), new Set([b, n]));
@@ -64,11 +66,11 @@ test('multiple parents and indirect paths deduplicate; cycles roll back the comp
   assert(descendantIds(db.readGraph().memberships, a).has(n));
 
   const before = db.readGraph();
-  const invalid = batch(3, [putMember(n, other), putMember(other, a), { type: 'node.put', node: { id: randomUUID() } }]);
+  const invalid = batch(3, [putMember(n, other), putMember(other, a), { type: 'node.put', node: { id: nanoid(12) } }]);
   assert.throws(() => db.applyBatch(invalid), (e: unknown) => e instanceof WriteError && e.code === 'MEMBERSHIP_CYCLE');
   assert.deepEqual(db.readGraph(), before);
   assert.throws(() => db.applyBatch(batch(3, [putMember(n, n)])), /包含循环/);
-  assert.throws(() => db.applyBatch(batch(3, [putMember(n, randomUUID())])), /不存在/);
+  assert.throws(() => db.applyBatch(batch(3, [putMember(n, nanoid(12))])), /不存在/);
   // Evaluate the final state: reverse a relationship in the same batch.
   const valid = { ...invalid, changes: [putMember(b, a), dropMember(a, b)] };
   const receipt = db.applyBatch(valid);
@@ -79,8 +81,8 @@ test('multiple parents and indirect paths deduplicate; cycles roll back the comp
 });
 
 test('scope projection ignores stale layouts, preserves shared identity and only includes internal ordinary edges', t => {
-  const db = openDatabase(':memory:'); t.after(() => db.close());
-  const store = createGraphStore(); store.getState().hydrate(empty);
+  const db = openTestGraph(':memory:'); t.after(() => db.close());
+  const store = createTestEditor(); store.getState().hydrate(empty);
   const a = store.getState().createNode(10, 20), b = store.getState().createNode(300, 20);
   const n = store.getState().createNode(150, 200), outside = store.getState().createNode(700, 500);
   store.getState().addMembership(a, b); store.getState().addMembership(a, n); store.getState().addMembership(b, n);
@@ -120,8 +122,8 @@ test('scope projection ignores stale layouts, preserves shared identity and only
 });
 
 test('dialog navigation preserves the main selection without writing or including the parent node', () => {
-  const a = randomUUID(), b = randomUUID(), n = randomUUID();
-  const store = createGraphStore();
+  const a = nanoid(12), b = nanoid(12), n = nanoid(12);
+  const store = createTestEditor();
   store.getState().hydrate({ ...empty, nodes: [a, b, n].map(id => ({ id })), memberships: [
     { containerId: a, memberId: b }, { containerId: b, memberId: n },
   ] });
@@ -150,16 +152,16 @@ test('dialog navigation preserves the main selection without writing or includin
 });
 
 test('bulk unlink removes only direct memberships and one undo restores them with their saved layouts', t => {
-  const db = openDatabase(':memory:'); t.after(() => db.close());
-  const a = randomUUID(), b = randomUUID(), n = randomUUID();
-  const edge = { id: randomUUID(), source: b, target: n, label: '', directed: true };
+  const db = openTestGraph(':memory:'); t.after(() => db.close());
+  const a = nanoid(12), b = nanoid(12), n = nanoid(12);
+  const edge = { id: nanoid(12), source: b, target: n, label: '', directed: true };
   const position = { contextNodeId: a, nodeId: n, x: 340, y: 170 };
   db.applyBatch(batch(0, [
     ...[a, b, n].map(id => ({ type: 'node.put' as const, node: { id } })),
     putMember(a, b), putMember(a, n), putMember(b, n),
     { type: 'edge.put', edge }, { type: 'layout.put', layout: position },
   ]));
-  const store = createGraphStore(); store.getState().hydrate(db.readGraph());
+  const store = createTestEditor(); store.getState().hydrate(db.readGraph());
   store.getState().select([n], []);
   store.getState().openScope(a);
   store.getState().select([b, n], [edge.id]);
@@ -181,8 +183,8 @@ test('bulk unlink removes only direct memberships and one undo restores them wit
 });
 
 test('deleting a container preserves children; one undo restores all memberships, edges and range layouts', t => {
-  const db = openDatabase(':memory:'); t.after(() => db.close());
-  const store = createGraphStore(); store.getState().hydrate(empty);
+  const db = openTestGraph(':memory:'); t.after(() => db.close());
+  const store = createTestEditor(); store.getState().hydrate(empty);
   const a = store.getState().createNode(0, 0), b = store.getState().createNode(200, 0), n = store.getState().createNode(300, 300);
   store.getState().addMembership(a, n); store.getState().addMembership(b, n);
   assert.match(store.getState().addMembership(n, a)!, /包含循环/);
@@ -208,8 +210,8 @@ test('deleting a container preserves children; one undo restores all memberships
 });
 
 test('range creation coalesces atomically and deleting during an in-flight creation is retained for the next batch', t => {
-  const db = openDatabase(':memory:'); t.after(() => db.close());
-  const store = createGraphStore(); store.getState().hydrate(empty);
+  const db = openTestGraph(':memory:'); t.after(() => db.close());
+  const store = createTestEditor(); store.getState().hydrate(empty);
   const parent = store.getState().createNode(0, 0);
   const first = store.getState().beginBatch()!; store.getState().acknowledge(db.applyBatch(first));
   store.getState().openScope(parent);

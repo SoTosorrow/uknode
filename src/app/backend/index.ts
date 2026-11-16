@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { openDatabase } from './database.js';
+import { openDatabase } from '../../storage/sqlite.js';
+import { createGraphService } from '../../runtime/server/batches.js';
 import { createApp } from './routes.js';
 
 const dev = process.argv.includes('--dev');
@@ -8,7 +9,7 @@ const port = Number(process.env.PORT || 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer between 1 and 65535');
 const dataDir = resolve(process.env.UKNODE_DATA_DIR || 'data');
 const database = openDatabase(resolve(dataDir, 'uknode.sqlite'));
-const app = createApp(database, { dev, logger: true });
+const app = createApp(createGraphService(database), { dev, logger: true });
 
 try {
   if (dev) {

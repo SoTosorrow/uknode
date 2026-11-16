@@ -1,8 +1,9 @@
 import Fastify, { type FastifyError } from 'fastify';
-import { WriteError, type GraphDatabase } from './database.js';
-import { batchSchema, type ChangeBatch } from '../shared/protocol.js';
+import { WriteError } from '../../runtime/errors.js';
+import type { GraphService } from '../../runtime/server/batches.js';
+import { batchSchema, type ChangeBatch } from '../../runtime/protocol.js';
 
-export function createApp(database: GraphDatabase, options: { dev?: boolean; logger?: boolean } = {}) {
+export function createApp(service: GraphService, options: { dev?: boolean; logger?: boolean } = {}) {
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: 5 * 1024 * 1024,
@@ -20,8 +21,8 @@ export function createApp(database: GraphDatabase, options: { dev?: boolean; log
     }
     if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
   });
-  app.get('/api/graph', () => database.readGraph());
-  app.post<{ Body: ChangeBatch }>('/api/changes', { schema: { body: batchSchema } }, request => database.applyBatch(request.body));
+  app.get('/api/graph', () => service.readGraph());
+  app.post<{ Body: ChangeBatch }>('/api/changes', { schema: { body: batchSchema } }, request => service.applyBatch(request.body));
   app.setErrorHandler<FastifyError>((error, request, reply) => {
     if (error instanceof WriteError) return reply.code(error.statusCode).send({ code: error.code, message: error.message });
     if (error.validation) return reply.code(400).send({ code: 'INVALID_BATCH', message: '提交内容不符合接口定义，修改仍保留在本页' });
@@ -29,6 +30,6 @@ export function createApp(database: GraphDatabase, options: { dev?: boolean; log
     request.log.error(error);
     return reply.code(status).send({ code: 'REQUEST_FAILED', message: status === 500 ? '保存服务发生错误，请重试' : '请求无效，修改仍保留在本页' });
   });
-  app.addHook('onClose', async () => database.close());
+  app.addHook('onClose', async () => service.close());
   return app;
 }

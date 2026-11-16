@@ -1,9 +1,9 @@
 import { useId, useState } from 'react';
-import { membershipKey } from '../shared/model.js';
-import { descendantIds, directMemberIds } from '../shared/memberships.js';
-import type { GraphState } from './graph-store.js';
+import { membershipKey } from '../core/model.js';
+import { descendantIds, directMemberIds } from '../core/traversal.js';
+import type { EditorState } from './editor-store.js';
 
-export function MembershipPicker({ nodeId, state }: { nodeId: string; state: GraphState }) {
+export function MembershipPicker({ nodeId, state }: { nodeId: string; state: EditorState }) {
   const inputId = useId();
   const [chosenId, setChosenId] = useState('');
   const [message, setMessage] = useState('');
@@ -30,7 +30,7 @@ export function MembershipPicker({ nodeId, state }: { nodeId: string; state: Gra
   </form>;
 }
 
-export function MembershipEditor({ nodeId, state }: { nodeId: string; state: GraphState }) {
+export function MembershipEditor({ nodeId, state }: { nodeId: string; state: EditorState }) {
   const memberships = Object.values(state.memberships);
   const count = directMemberIds(memberships, nodeId).length;
   const parents = memberships.filter(m => m.memberId === nodeId).map(m => m.containerId);
@@ -46,7 +46,7 @@ export function MembershipEditor({ nodeId, state }: { nodeId: string; state: Gra
       <button disabled={disabled} onClick={() => state.removeMembership(context!, nodeId)}>解除当前收录</button>
     </div>}
     {parents.length > 0 && <div className="parent-references"><span>被 {parents.length} 个节点直接收录</span><div>{parents.map(id =>
-      <button key={id} title={id} disabled={disabled} onClick={() => state.openScope(id)}><code>{id.slice(0, 8)}</code></button>,
+      <button key={id} disabled={disabled} onClick={() => state.openScope(id)}><code>{id}</code></button>,
     )}</div></div>}
   </section>;
 }

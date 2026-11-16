@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { useStore } from 'zustand';
-import type { GraphStore } from './graph-store.js';
-import { directMemberIds } from '../shared/memberships.js';
+import { useEditorState } from './use-editor.js';
+import type { Editor } from './editor-store.js';
+import { directMemberIds } from '../core/traversal.js';
 import { MembershipPicker } from './scope-controls.js';
 import { Icon } from './editor-overlays.js';
 
-export function MembershipDialog({ store, children }: { store: GraphStore; children: ReactNode }) {
-  const state = useStore(store);
+export function MembershipDialog({ editor, children }: { editor: Editor; children: ReactNode }) {
+  const state = useEditorState(editor);
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const nodeId = state.contextNodeId!;
@@ -26,13 +26,13 @@ export function MembershipDialog({ store, children }: { store: GraphStore; child
     onCancel={event => { event.preventDefault(); state.closeScope(); }}>
     <header className="membership-dialog-header">
       <div className="membership-dialog-title-row">
-        <h2 ref={heading} tabIndex={-1} id="membership-dialog-title">收录节点 <code title={nodeId}>{nodeId.slice(0, 8)}</code><span>{count} 个直接成员</span></h2>
+        <h2 ref={heading} tabIndex={-1} id="membership-dialog-title">收录节点 <code>{nodeId}</code><span>{count} 个直接成员</span></h2>
         <button className="dialog-close" aria-label="关闭收录弹窗" title="关闭（Esc）" onClick={state.closeScope}><Icon name="close" /></button>
       </div>
       <div className="membership-dialog-actions">
         <nav className="membership-path" aria-label="浏览路径">
           <button disabled={state.loading || state.navigation.length < 2} onClick={state.goBack}>返回</button>
-          <ol>{path.map((id, index) => <li key={`${index}:${id}`} aria-current={index === path.length - 1 ? 'location' : undefined}><code title={id}>{id.slice(0, 8)}</code></li>)}</ol>
+          <ol>{path.map((id, index) => <li key={`${index}:${id}`} aria-current={index === path.length - 1 ? 'location' : undefined}><code>{id}</code></li>)}</ol>
         </nav>
         <MembershipPicker key={nodeId} nodeId={nodeId} state={state} />
       </div>
