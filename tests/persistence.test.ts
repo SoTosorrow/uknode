@@ -34,18 +34,18 @@ test('migrations create the declared core tables; edits and cascades survive reo
     { type: 'node.put', node: { id: a } }, { type: 'node.put', node: { id: b } },
     { type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 10, y: 20 } },
     { type: 'layout.put', layout: { contextNodeId: null, nodeId: b, x: 100, y: 200 } },
-    ...[edge, parallel].map(id => ({ type: 'edge.put' as const, edge: { id, source: a, target: b, label: '', directed: false } })),
-    { type: 'edge.put', edge: { id: loop, source: b, target: b, label: 'self', directed: true } },
+    ...[edge, parallel].map(id => ({ type: 'edge.put' as const, edge: { id, source: a, target: b, directed: false } })),
+    { type: 'edge.put', edge: { id: loop, source: b, target: b, directed: true } },
   ]));
   const original = db.readGraph();
   db.applyBatch(batch(1, [
     { type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 33, y: 44 } },
-    { type: 'edge.put', edge: { id: edge, source: a, target: b, label: '关联', directed: true } },
+    { type: 'edge.put', edge: { id: edge, source: a, target: b, directed: true } },
   ]));
   db.close(); db = openTestGraph(filename);
   assert.equal(db.readGraph().revision, 2);
   assert.deepEqual(db.readGraph().layouts.find(p => p.nodeId === a), { contextNodeId: null, nodeId: a, x: 33, y: 44 });
-  assert.equal(db.readGraph().edges.find(e => e.id === edge)?.label, '关联');
+  assert.equal(db.readGraph().edges.find(e => e.id === edge)?.directed, true);
   assert.deepEqual(db.readGraph().nodes, original.nodes);
   db.applyBatch(batch(2, [{ type: 'node.delete', id: a }]));
   assert.deepEqual(db.readGraph().nodes, [{ id: b }]);
@@ -58,6 +58,8 @@ test('retries are idempotent even after a later write; mismatched batch reuse is
   const a = nanoid(12);
   const initial = batch(0, [{ type: 'node.put', node: { id: a } }]);
   const receipt = db.applyBatch(initial);
+  const reordered = { changes: [{ node: { id: a }, type: 'node.put' as const }], expectedRevision: 0, batchId: initial.batchId };
+  assert.deepEqual(db.applyBatch(reordered), receipt);
   assert.deepEqual(db.applyBatch(initial), receipt);
   db.applyBatch(batch(1, [{ type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 8, y: 9 } }]));
   assert.deepEqual(db.applyBatch(initial), receipt);
@@ -71,9 +73,9 @@ test('an invalid edge or duplicate change rolls back the entire batch', t => {
   const id = nanoid(12);
   const invalid = batch(0, [
     { type: 'node.put', node: { id } },
-    { type: 'edge.put', edge: { id: nanoid(12), source: id, target: nanoid(12), label: '', directed: false } },
+    { type: 'edge.put', edge: { id: nanoid(12), source: id, target: nanoid(12), directed: false } },
   ]);
-  assert.throws(() => db.applyBatch(invalid), /端点不存在/);
+  assert.throws(() => db.applyBatch(invalid), /节点或范围不存在/);
   assert.deepEqual(db.readGraph(), { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] });
   assert.throws(() => db.applyBatch(batch(0, [{ type: 'node.put', node: { id } }, { type: 'node.delete', id }])), /只能出现一次/);
   assert.equal(db.readGraph().revision, 0);
@@ -89,6 +91,7 @@ test('HTTP validates strict core fields, local origins, and revision conflicts',
   const headers = { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000' };
   const send = (body: unknown, requestHeaders = headers) => app.inject({ method: 'POST', url: '/api/changes', headers: { 'content-type': 'application/json', ...requestHeaders }, payload: JSON.stringify(body) });
   assert.equal((await send({ ...payload, changes: [{ type: 'node.put', node: { id: nanoid(12), title: 'not allowed' } }] })).statusCode, 400);
+  assert.equal((await send({ ...payload, changes: [{ type: 'edge.put', edge: { id: nanoid(12), source: nanoid(12), target: nanoid(12), directed: false, label: 'removed' } }] })).statusCode, 400);
   assert.equal((await send({ ...payload, expectedRevision: '0' })).statusCode, 400);
   assert.equal((await send(payload, { ...headers, origin: 'https://example.com' })).statusCode, 403);
   assert.equal((await send(payload, { ...headers, host: 'example.com' })).statusCode, 403);
@@ -99,6 +102,10 @@ test('HTTP validates strict core fields, local origins, and revision conflicts',
   const read = await app.inject({ url: '/api/graph', headers });
   assert.equal(read.headers['cache-control'], 'no-store');
   assert.equal(read.json().nodes.length, 1);
+  const missing = await send(batch(1, [{ type: 'layout.put', layout: { contextNodeId: null, nodeId: nanoid(12), x: 0, y: 0 } }]));
+  assert.equal(missing.statusCode, 400);
+  assert.equal(missing.json().code, 'MISSING_NODE');
+  assert.equal(db.readGraph().revision, 1);
 });
 
 test('HTTP persists NanoIDs, including memberships, scoped layouts and delete undo', async t => {

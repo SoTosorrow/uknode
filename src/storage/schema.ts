@@ -14,7 +14,6 @@ export const baseEdges = sqliteTable('base_edges', {
   source: text('source_node_id').notNull().references(() => baseNodes.id, { onDelete: 'cascade' }),
   target: text('target_node_id').notNull().references(() => baseNodes.id, { onDelete: 'cascade' }),
   directed: integer('directed', { mode: 'boolean' }).notNull().default(false),
-  label: text('label').notNull().default(''),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 }, table => [

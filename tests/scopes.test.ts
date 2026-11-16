@@ -39,8 +39,8 @@ test('upgrading the original populated schema preserves global coordinates and e
   old.close();
 
   const upgraded = openTestGraph(file);
-  assert.deepEqual(upgraded.readGraph(), { revision: 7, nodes: [{ id }], edges: [], memberships: [], layouts: [{ contextNodeId: null, nodeId: id, x: -175.25, y: 48.5 }] });
-  upgraded.applyBatch(batch(7, [{ type: 'layout.put', layout: { contextNodeId: id, nodeId: id, x: 100, y: 200 } }]));
+  assert.deepEqual(upgraded.readGraph(), { revision: 8, nodes: [{ id }], edges: [], memberships: [], layouts: [{ contextNodeId: null, nodeId: id, x: -175.25, y: 48.5 }] });
+  upgraded.applyBatch(batch(8, [{ type: 'layout.put', layout: { contextNodeId: id, nodeId: id, x: 100, y: 200 } }]));
   upgraded.close();
   const check = new SQLite(file);
   try {
@@ -154,7 +154,7 @@ test('dialog navigation preserves the main selection without writing or includin
 test('bulk unlink removes only direct memberships and one undo restores them with their saved layouts', t => {
   const db = openTestGraph(':memory:'); t.after(() => db.close());
   const a = nanoid(12), b = nanoid(12), n = nanoid(12);
-  const edge = { id: nanoid(12), source: b, target: n, label: '', directed: true };
+  const edge = { id: nanoid(12), source: b, target: n, directed: true };
   const position = { contextNodeId: a, nodeId: n, x: 340, y: 170 };
   db.applyBatch(batch(0, [
     ...[a, b, n].map(id => ({ type: 'node.put' as const, node: { id } })),
@@ -217,7 +217,9 @@ test('range creation coalesces atomically and deleting during an in-flight creat
   store.getState().openScope(parent);
   const unsent = store.getState().createNode(1, 2);
   store.getState().deleteSelection();
-  assert.deepEqual(store.getState().pending, {});
+  assert(Object.values(store.getState().pending).every(change => change.type.endsWith('.delete')));
+  const cancelled = store.getState().beginBatch()!;
+  store.getState().acknowledge(db.applyBatch(cancelled));
   assert(!store.getState().nodes[unsent]);
 
   const child = store.getState().createNode(3, 4);

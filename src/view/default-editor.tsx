@@ -19,18 +19,11 @@ export interface DefaultEditorProps {
   onOpenNode?: (nodeId: string) => void;
 }
 
-const noPreviews: Record<string, NodeLayout> = {};
-
 export function DefaultEditor({ editor, saver, contextNodeId, renderNode, renderDetails, onOpenNode }: DefaultEditorProps) {
-  const currentState = useEditorState(editor);
-  const active = currentState.contextNodeId === contextNodeId;
+  const state = useEditorState(editor, contextNodeId);
+  const active = state.active;
   const inDialog = contextNodeId !== null;
-  const state = active ? currentState : {
-    ...currentState, contextNodeId,
-    selectedNodes: currentState.mainSelection?.nodes ?? [],
-    selectedEdges: currentState.mainSelection?.edges ?? [],
-  };
-  const previews = active ? state.previewLayouts : noPreviews;
+  const previews = state.previewLayouts;
   const flow = useReactFlow();
   const canvas = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
@@ -122,13 +115,13 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
       {inDialog && <button aria-label="解除收录" title="解除选中节点的收录（Delete）" disabled={!canEdit || !state.selectedNodes.length} onClick={state.removeSelectedMemberships}><Icon name="unlink" /><span>解除收录</span></button>}
       <button aria-label={inDialog ? '彻底删除选中' : '删除选中'} title="彻底删除选中对象，影响所有引用" disabled={!canEdit || (!state.selectedNodes.length && !state.selectedEdges.length)} onClick={deleteSelected}><Icon name="trash" /><span>{inDialog ? '彻底删除' : '删除选中'}</span></button>
       <span className="control-divider" />
-      <button aria-label="撤销" title="撤销（Ctrl / ⌘ Z）" disabled={!canEdit || !state.past.length} onClick={state.undo}><Icon name="undo" /><span>撤销</span></button>
-      <button aria-label="重做" title="重做（Ctrl / ⌘ Shift Z）" disabled={!canEdit || !state.future.length} onClick={state.redo}><Icon name="redo" /><span>重做</span></button>
+      <button aria-label="撤销" title="撤销（Ctrl / ⌘ Z）" disabled={!canEdit || !state.canUndo} onClick={state.undo}><Icon name="undo" /><span>撤销</span></button>
+      <button aria-label="重做" title="重做（Ctrl / ⌘ Shift Z）" disabled={!canEdit || !state.canRedo} onClick={state.redo}><Icon name="redo" /><span>重做</span></button>
     </div>
     <p className="canvas-hint">拖动框选<span>·</span>空格拖动平移<span>·</span>右键新增</p>
     {!scope.nodeIds.length && canEdit && <div className="empty-hint">{inDialog ? '尚未收录节点' : '右键新增节点'}<small>{inDialog ? '在这里新增，或从上方收录已有节点' : '也可以使用下方工具栏'}</small></div>}
     <CanvasControls />
-    <SelectionDetails state={state} saver={saver} layouts={displayedLayouts} renderDetails={renderDetails} />
+    <SelectionDetails state={state} layouts={displayedLayouts} renderDetails={renderDetails} />
     {menu && <CanvasMenu menu={menu} disabled={!canEdit} onClose={dismissMenu} onCreate={() => {
       if (canEdit) state.createNode(menu.position.x, menu.position.y);
       dismissMenu();

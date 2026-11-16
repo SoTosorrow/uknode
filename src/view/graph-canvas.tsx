@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  ReactFlow, Background, BaseEdge, EdgeLabelRenderer, MarkerType, SelectionMode, useReactFlow,
+  ReactFlow, Background, BaseEdge, MarkerType, SelectionMode, useReactFlow,
   type Node, type Edge, type EdgeProps, type NodeChange, type EdgeChange, type XYPosition, type Connection,
 } from '@xyflow/react';
 import type { BaseEdge as GraphEdge } from '../core/model.js';
@@ -39,12 +39,7 @@ function RelationEdge(props: EdgeProps<Relation>) {
   const path = self
     ? `M ${sx} ${sy} C ${sx + loop} ${sy - loop * 2}, ${tx - loop} ${ty - loop * 2}, ${tx} ${ty}`
     : `M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`;
-  const labelX = self ? (sx + tx) / 2 : (sx + 2 * cx + tx) / 4;
-  const labelY = self ? (sy + ty) / 2 - loop * 1.5 : (sy + 2 * cy + ty) / 4;
-  return <>
-    <BaseEdge id={props.id} path={path} markerEnd={props.markerEnd} style={props.style} />
-    {props.label && <EdgeLabelRenderer><span className={`edge-label${props.selected ? ' is-selected' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>{props.label}</span></EdgeLabelRenderer>}
-  </>;
+  return <BaseEdge id={props.id} path={path} markerEnd={props.markerEnd} style={props.style} />;
 }
 
 const nodeTypes = { anchor: NodeShell };

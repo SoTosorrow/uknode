@@ -17,21 +17,11 @@ export interface GraphStorage {
 }
 
 function payloadHash(batch: ChangeBatch): string {
-  // Canonical field order preserves idempotency across JSON key order changes.
-  const changes = batch.changes.map(change => {
-    switch (change.type) {
-      case 'node.put': return [change.type, change.node.id];
-      case 'node.delete': case 'edge.delete': return [change.type, change.id];
-      case 'edge.put': {
-        const { id, source, target, directed, label } = change.edge;
-        return [change.type, id, source, target, directed, label];
-      }
-      case 'membership.put': case 'membership.delete': return [change.type, change.membership.containerId, change.membership.memberId];
-      case 'layout.put': return [change.type, change.layout.contextNodeId, change.layout.nodeId, change.layout.x, change.layout.y];
-      case 'layout.delete': return [change.type, change.layout.contextNodeId, change.layout.nodeId];
-    }
-  });
-  return createHash('sha256').update(JSON.stringify([batch.expectedRevision, changes])).digest('hex');
+  // Sort object keys once; every protocol field participates without a second schema.
+  const payload = JSON.stringify([batch.expectedRevision, batch.changes], (_, value) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+  return createHash('sha256').update(payload).digest('hex');
 }
 
 export function createGraphService(storage: GraphStorage) {

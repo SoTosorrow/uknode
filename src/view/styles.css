@@ -48,8 +48,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .react-flow__node:hover .react-flow__handle, .react-flow__node.selected .react-flow__handle, .react-flow__node:focus-within .react-flow__handle, .is-connecting .react-flow__handle { opacity: 1; }
 .react-flow__node.selected .react-flow__handle { background: var(--accent); }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 1.6; }
-.edge-label { position: absolute; background: #fcfdff; padding: 3px 7px; border-radius: 5px; max-width: 240px; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; color: #596477; }
-.edge-label.is-selected { color: #2857d9; background: #edf2ff; }
 .react-flow__nodesselection-rect { border-radius: 8px; }
 .react-flow__attribution { font-size: 8px; opacity: 0.55; }
 
@@ -68,9 +66,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .details-content dt { color: #7d8797; }
 .details-content dd { margin: 0; color: #303b50; font-variant-numeric: tabular-nums; }
 .endpoint-list { display: grid; gap: 11px; margin: 0 0 18px; }
-.detail-field textarea { display: block; resize: vertical; min-height: 62px; max-height: 150px; width: 100%; padding: 9px 10px; color: #303b50; border: 1px solid #d4dce7; border-radius: 6px; outline: none; line-height: 1.6; background: #fff; }
-.detail-field textarea::placeholder { color: #a3acba; }
-.detail-field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px #386bfa0d; }
 .direction-field { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #4a5568; }
 .direction-field input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
 .selection-count { margin: 0; color: #303b50; }

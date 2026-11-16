@@ -3,7 +3,7 @@ import { membershipKey } from '../core/model.js';
 import { descendantIds, directMemberIds } from '../core/traversal.js';
 import type { EditorState } from './editor-store.js';
 
-export function MembershipPicker({ nodeId, state }: { nodeId: string; state: EditorState }) {
+export function MembershipPicker({ nodeId, state }: { nodeId: string; state: Pick<EditorState, 'nodes' | 'memberships' | 'loaded' | 'loading' | 'addMembership'> }) {
   const inputId = useId();
   const [chosenId, setChosenId] = useState('');
   const [message, setMessage] = useState('');
@@ -30,7 +30,7 @@ export function MembershipPicker({ nodeId, state }: { nodeId: string; state: Edi
   </form>;
 }
 
-export function MembershipEditor({ nodeId, state }: { nodeId: string; state: EditorState }) {
+export function MembershipEditor({ nodeId, state }: { nodeId: string; state: Pick<EditorState, 'memberships' | 'loaded' | 'loading' | 'contextNodeId' | 'openScope' | 'removeMembership'> }) {
   const memberships = Object.values(state.memberships);
   const count = directMemberIds(memberships, nodeId).length;
   const parents = memberships.filter(m => m.memberId === nodeId).map(m => m.containerId);

@@ -15,6 +15,13 @@
       "when": 1794398010702,
       "tag": "0001_memberships_and_scoped_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794843275701,
+      "tag": "0002_remove_edge_description",
+      "breakpoints": true
     }
   ]
 }

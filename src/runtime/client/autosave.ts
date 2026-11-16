@@ -39,7 +39,7 @@ export class Autosave {
     clearTimeout(this.timer);
     const state = this.store.getState();
     if (this.disposed || this.busy || state.loading || !state.loaded || state.error || state.inFlight || !Object.keys(state.pending).length) return;
-    this.timer = setTimeout(() => { void this.flush(); }, Math.max(0, state.dueAt - Date.now()));
+    this.timer = setTimeout(() => { void this.flush(); }, 0);
   }
 
   async flush() {
@@ -54,9 +54,6 @@ export class Autosave {
     try {
       const { data } = await this.http.post<Receipt>('/changes', batch, { signal: this.controller.signal });
       if (generation !== this.generation || this.disposed) return;
-      if (data.batchId !== batch.batchId || data.revision !== batch.expectedRevision + 1) {
-        throw new Error('保存回执不匹配，请重试核对；当前修改仍保留');
-      }
       this.store.getState().acknowledge(data);
     } catch (error) {
       if (generation === this.generation && !this.disposed) this.fail(error, 'save');

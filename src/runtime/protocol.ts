@@ -36,7 +36,7 @@ export const batchSchema = object({
       object({ type: { const: 'node.put' }, node: object({ id }) }),
       object({ type: { const: 'node.delete' }, id }),
       object({ type: { const: 'edge.put' }, edge: object({
-        id, source: id, target: id, directed: { type: 'boolean' }, label: { type: 'string', maxLength: 300 },
+        id, source: id, target: id, directed: { type: 'boolean' },
       }) }),
       object({ type: { const: 'edge.delete' }, id }),
       object({ type: { enum: ['membership.put', 'membership.delete'] }, membership: object({ containerId: id, memberId: id }) }),

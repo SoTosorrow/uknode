@@ -1,14 +1,12 @@
 import type { ReactNode } from 'react';
-import type { EditorState } from './editor-store.js';
-import type { Autosave } from '../runtime/client/autosave.js';
+import type { EditorUIState } from './use-editor.js';
 import type { NodeLayout } from '../runtime/document.js';
 import type { CanvasSelection } from './graph-canvas.js';
 import { MembershipEditor } from './scope-controls.js';
 import { DetailsPanel } from './editor-overlays.js';
 
-export function SelectionDetails({ state, saver, layouts, renderDetails }: {
-  state: EditorState;
-  saver: Autosave;
+export function SelectionDetails({ state, layouts, renderDetails }: {
+  state: EditorUIState;
   layouts: Record<string, NodeLayout>;
   renderDetails?: (selection: CanvasSelection) => ReactNode;
 }) {
@@ -29,7 +27,6 @@ export function SelectionDetails({ state, saver, layouts, renderDetails }: {
         <div><dt>起点</dt><dd><code>{edge.source}</code></dd></div>
         <div><dt>终点</dt><dd><code>{edge.target}</code></dd></div>
       </dl>
-      <label className="detail-field">连线说明<textarea disabled={state.loading} maxLength={300} value={edge.label} placeholder="添加连线说明" onChange={event => state.updateEdge(edge.id, { label: event.target.value })} onBlur={() => void saver.flush()} /></label>
       <label className="direction-field"><input type="checkbox" disabled={state.loading} checked={edge.directed} onChange={event => state.updateEdge(edge.id, { directed: event.target.checked })} />有方向</label>
     </> : <>
       <p className="selection-count">{nodeIds.length} 个节点 · {edgeIds.length} 条连线</p>

@@ -11,20 +11,42 @@ import type { GraphData } from '../src/runtime/document.js';
 const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
 const loadedStore = () => { const store = createTestEditor(); store.getState().hydrate(empty); return store; };
 
-test('pending changes coalesce; creating then deleting unsent objects leaves no writes', () => {
+test('receipt validation rejects wrong batch or revision without clearing in-flight or newer edits', () => {
+  const editor = loadedStore();
+  const id = editor.getState().createNode(0, 0);
+  const batch = editor.getState().beginBatch()!;
+  editor.getState().commitPositions([{ contextNodeId: null, nodeId: id, x: 0, y: 0 }], [{ contextNodeId: null, nodeId: id, x: 5, y: 5 }]);
+  const before = editor.session.getState();
+  for (const receipt of [{ batchId: nanoid(12), revision: 1 }, { batchId: batch.batchId, revision: 2 }]) {
+    assert.throws(() => editor.getState().acknowledge(receipt), /回执不匹配/);
+    assert.equal(editor.session.getState(), before);
+  }
+  editor.getState().acknowledge({ batchId: batch.batchId, revision: 1 });
+  assert.equal(editor.getState().inFlight, null);
+  assert.equal(Object.keys(editor.getState().pending).length, 1);
+});
+
+test('pending changes coalesce; deleting unsent objects retains harmless final deletes', () => {
   const store = loadedStore();
   const a = store.getState().createNode(0, 0), b = store.getState().createNode(100, 100);
   store.getState().createEdge(a, b);
   const edge = Object.keys(store.getState().edges)[0];
   for (const id of [a, b, edge]) assert.match(id, /^[A-Za-z0-9_-]{12}$/);
   assert.equal(new Set([a, b, edge]).size, 3);
-  store.getState().updateEdge(edge, { label: 'first' });
-  store.getState().updateEdge(edge, { label: 'final' });
+  store.getState().updateEdge(edge, { directed: true });
+  store.getState().updateEdge(edge, { directed: false });
   const changes = Object.values(store.getState().pending);
   assert.equal(changes.filter(c => c.type === 'edge.put').length, 1);
-  assert.equal(changes.find(c => c.type === 'edge.put')?.edge.label, 'final');
+  assert.equal(changes.find(c => c.type === 'edge.put')?.edge.directed, false);
   store.getState().select([a, b], []); store.getState().deleteSelection();
-  assert.deepEqual(store.getState().pending, {});
+  const pending = Object.values(store.getState().pending);
+  assert.equal(pending.length, 5);
+  assert(pending.every(change => change.type.endsWith('.delete')));
+  const service = openTestGraph(':memory:');
+  try {
+    service.applyBatch(store.getState().beginBatch()!);
+    assert.deepEqual(service.readGraph(), { ...empty, revision: 1 });
+  } finally { service.close(); }
   assert.deepEqual(store.getState().nodes, {});
   assert.deepEqual(store.getState().edges, {});
   assert.deepEqual(store.getState().layouts, {});
@@ -38,7 +60,7 @@ test('ID collisions retry against loaded objects, pending creations and deleted 
     assert(id, 'unexpected extra generation attempt');
     return id;
   });
-  store.getState().hydrate({ ...empty, nodes: [{ id: a }], edges: [{ id: edgeId, source: a, target: a, directed: false, label: '' }] });
+  store.getState().hydrate({ ...empty, nodes: [{ id: a }], edges: [{ id: edgeId, source: a, target: a, directed: false }] });
   assert.equal(store.getState().createNode(10, 20), b);
   assert.equal(store.getState().createNode(30, 40), c);
   store.getState().select([b], []);
@@ -67,7 +89,7 @@ test('acknowledging an in-flight create preserves the newer pending delete', () 
 
 test('drag frames do not queue writes; drag and cascaded deletion undo restore the original objects', () => {
   const store = loadedStore();
-  const a = nanoid(12), b = nanoid(12), edge = { id: nanoid(12), source: a, target: b, label: '', directed: false };
+  const a = nanoid(12), b = nanoid(12), edge = { id: nanoid(12), source: a, target: b, directed: false };
   const start = { contextNodeId: null, nodeId: a, x: 1, y: 2 }, end = { contextNodeId: null, nodeId: a, x: 60, y: 70 };
   store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], memberships: [], layouts: [start, { contextNodeId: null, nodeId: b, x: 100, y: 100 }] });
   store.getState().previewPositions([{ ...start, x: 30 }]);

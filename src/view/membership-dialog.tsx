@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { useEditorState } from './use-editor.js';
+import { useMembershipState } from './use-editor.js';
 import type { Editor } from './editor-store.js';
 import { directMemberIds } from '../core/traversal.js';
 import { MembershipPicker } from './scope-controls.js';
 import { Icon } from './editor-overlays.js';
 
 export function MembershipDialog({ editor, children }: { editor: Editor; children: ReactNode }) {
-  const state = useEditorState(editor);
+  const state = useMembershipState(editor);
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const nodeId = state.contextNodeId!;

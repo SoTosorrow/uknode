@@ -1,12 +1,10 @@
 import { membershipKey } from '../../core/model.js';
 import { layoutKey, type DocumentObjects } from '../document.js';
-import { changeKey, type Change } from '../protocol.js';
+import type { Change } from '../protocol.js';
 
 export interface HistoryEntry {
   undo: Change[];
   redo: Change[];
-  mergeKey?: string;
-  time: number;
 }
 
 export function invertChanges(graph: DocumentObjects, changes: Change[]): Change[] {
@@ -19,9 +17,6 @@ export function invertChanges(graph: DocumentObjects, changes: Change[]): Change
       case 'node.delete': {
         const node = graph.nodes[change.id];
         if (node) inverse.push({ type: 'node.put', node });
-        for (const edge of Object.values(graph.edges)) if (edge.source === change.id || edge.target === change.id) inverse.push({ type: 'edge.put', edge });
-        for (const membership of Object.values(graph.memberships)) if (membership.containerId === change.id || membership.memberId === change.id) inverse.push({ type: 'membership.put', membership });
-        for (const layout of Object.values(graph.layouts)) if (layout.nodeId === change.id || layout.contextNodeId === change.id) inverse.push({ type: 'layout.put', layout });
         break;
       }
       case 'edge.put': {
@@ -48,13 +43,5 @@ export function invertChanges(graph: DocumentObjects, changes: Change[]): Change
       }
     }
   }
-  return [...new Map(inverse.map(change => [changeKey(change), change])).values()];
-}
-
-export function recordHistory(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
-  const previous = past.at(-1);
-  if (entry.mergeKey && previous?.mergeKey === entry.mergeKey && entry.time - previous.time < 1500) {
-    return [...past.slice(0, -1), { ...entry, undo: previous.undo }];
-  }
-  return [...past, entry].slice(-100);
+  return inverse;
 }

@@ -5,7 +5,6 @@ export interface BaseEdge {
   source: string;
   target: string;
   directed: boolean;
-  label: string;
 }
 export interface Membership { containerId: string; memberId: string }
 

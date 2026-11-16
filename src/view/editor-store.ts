@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { membershipKey, type BaseEdge } from '../core/model.js';
 import { GraphError } from '../core/graph.js';
-import { deleteDocumentObjects, layoutKey, type DocumentObjects, type NodeLayout } from '../runtime/document.js';
+import { layoutKey, type DocumentObjects, type NodeLayout } from '../runtime/document.js';
 import type { Change } from '../runtime/protocol.js';
 import type { SessionState, SessionStore } from '../runtime/client/session.js';
 import { scopeNodeIds } from './scope.js';
@@ -15,7 +15,7 @@ interface ViewState {
   selectedEdges: string[];
   createNode: (x: number, y: number) => string;
   createEdge: (source: string, target: string) => void;
-  updateEdge: (id: string, update: Partial<Pick<BaseEdge, 'label' | 'directed'>>) => void;
+  updateEdge: (id: string, update: Pick<BaseEdge, 'directed'>) => void;
   addMembership: (containerId: string, memberId: string) => string | null;
   removeMembership: (containerId: string, memberId: string) => void;
   removeSelectedMemberships: () => void;
@@ -66,13 +66,13 @@ export function createEditor(session: SessionStore) {
     createEdge(source, target) {
       if (!read().nodes[source] || !read().nodes[target]) return;
       const id = session.getState().allocateId();
-      session.getState().edit([{ type: 'edge.put', edge: { id, source, target, directed: false, label: '' } }]);
+      session.getState().edit([{ type: 'edge.put', edge: { id, source, target, directed: false } }]);
       read().select([], [id]);
     },
     updateEdge(id, update) {
       const edge = read().edges[id];
-      if (!edge || Object.entries(update).every(([key, value]) => edge[key as keyof BaseEdge] === value)) return;
-      session.getState().edit([{ type: 'edge.put', edge: { ...edge, ...update } }], 'label' in update ? 500 : 0, 'label' in update ? `edge-label:${id}` : undefined);
+      if (!edge || edge.directed === update.directed) return;
+      session.getState().edit([{ type: 'edge.put', edge: { ...edge, ...update } }]);
     },
     addMembership(containerId, memberId) {
       const state = read();
@@ -131,7 +131,10 @@ export function createEditor(session: SessionStore) {
     },
     deleteSelection() {
       const state = read();
-      session.getState().edit(deleteDocumentObjects(state, state.selectedNodes, state.selectedEdges));
+      session.getState().edit([
+        ...state.selectedNodes.map(id => ({ type: 'node.delete' as const, id })),
+        ...state.selectedEdges.map(id => ({ type: 'edge.delete' as const, id })),
+      ]);
     },
     previewPositions(updates) {
       const state = read(), previewLayouts = { ...state.previewLayouts };

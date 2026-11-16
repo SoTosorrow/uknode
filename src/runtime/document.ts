@@ -1,6 +1,6 @@
 import { type BaseNode, type BaseEdge, type Membership, type GraphObjects } from '../core/model.js';
 import type { GraphChange } from '../core/changes.js';
-import { applyGraphChanges, deleteGraphObjects } from '../core/graph.js';
+import { applyGraphChanges } from '../core/graph.js';
 import type { Change } from './protocol.js';
 
 // An editing document combines the graph with persistent layouts. The core does
@@ -18,26 +18,20 @@ export interface GraphData {
 }
 export interface DocumentObjects extends GraphObjects { layouts: Record<string, NodeLayout> }
 
-export function applyDocumentChanges(document: DocumentObjects, changes: Change[]): DocumentObjects {
-  const graph = applyGraphChanges(document, changes.filter((c): c is GraphChange => c.type !== 'layout.put' && c.type !== 'layout.delete'));
-  const layouts = { ...document.layouts };
-  for (const change of changes) {
-    if (change.type === 'layout.delete') delete layouts[layoutKey(change.layout)];
-    if (change.type === 'node.delete') {
-      for (const layout of Object.values(layouts)) {
-        if (layout.nodeId === change.id || layout.contextNodeId === change.id) delete layouts[layoutKey(layout)];
-      }
+export function applyDocumentChanges(document: DocumentObjects, input: Change[]): { document: DocumentObjects; changes: Change[] } {
+  const result = applyGraphChanges(document, input.filter((c): c is GraphChange => c.type !== 'layout.put' && c.type !== 'layout.delete'));
+  const deletedNodes = new Set(result.changes.filter(c => c.type === 'node.delete').map(c => c.id));
+  const layoutChanges = new Map<string, Extract<Change, { type: 'layout.put' | 'layout.delete' }>>();
+  if (deletedNodes.size) for (const layout of Object.values(document.layouts)) {
+    if (deletedNodes.has(layout.nodeId) || (layout.contextNodeId !== null && deletedNodes.has(layout.contextNodeId))) {
+      layoutChanges.set(layoutKey(layout), { type: 'layout.delete', layout: { contextNodeId: layout.contextNodeId, nodeId: layout.nodeId } });
     }
   }
-  for (const change of changes) if (change.type === 'layout.put') layouts[layoutKey(change.layout)] = change.layout;
-  return { ...graph, layouts };
-}
-
-export function deleteDocumentObjects(document: DocumentObjects, nodeIds: string[], edgeIds: string[] = []): Change[] {
-  const nodes = new Set(nodeIds);
-  return [
-    ...deleteGraphObjects(document, nodeIds, edgeIds),
-    ...Object.values(document.layouts).filter(p => nodes.has(p.nodeId) || (p.contextNodeId !== null && nodes.has(p.contextNodeId)))
-      .map(({ contextNodeId, nodeId }) => ({ type: 'layout.delete' as const, layout: { contextNodeId, nodeId } })),
-  ];
+  for (const change of input) if (change.type === 'layout.put' || change.type === 'layout.delete') layoutChanges.set(layoutKey(change.layout), change);
+  const layouts = layoutChanges.size ? { ...document.layouts } : document.layouts;
+  for (const [key, change] of layoutChanges) {
+    if (change.type === 'layout.delete') delete layouts[key];
+    else layouts[key] = change.layout;
+  }
+  return { document: { ...result.graph, layouts }, changes: [...result.changes, ...layoutChanges.values()] };
 }
