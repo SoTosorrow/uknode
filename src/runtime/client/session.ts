@@ -4,6 +4,7 @@ import { membershipKey } from '../../core/model.js';
 import { applyDocumentChanges, layoutKey, type DocumentObjects, type GraphData } from '../document.js';
 import { changeKey, type Change, type ChangeBatch, type Receipt } from '../protocol.js';
 import { invertChanges, type HistoryEntry } from './history.js';
+import { attachmentKey } from '../attachments.js';
 
 export interface SaveError { message: string; retryable: boolean; phase: 'load' | 'save' }
 export interface SessionState extends DocumentObjects {
@@ -18,7 +19,7 @@ export interface SessionState extends DocumentObjects {
   future: HistoryEntry[];
   allocateId: () => string;
   hydrate: (graph: GraphData) => void;
-  edit: (changes: Change[]) => boolean;
+  edit: (changes: Change[], mergeKey?: string) => boolean;
   undo: () => void;
   redo: () => void;
   beginBatch: () => ChangeBatch | null;
@@ -36,7 +37,7 @@ export function createSessionStore(generateId = () => nanoid(12)) {
     // IDs remain reserved while deleted objects can still be restored by undo.
     const usedIds = new Set<string>();
     return {
-      nodes: {}, edges: {}, layouts: {}, memberships: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
+      nodes: {}, edges: {}, layouts: {}, memberships: {}, attachments: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
       pending: {}, inFlight: null, error: null, past: [], future: [],
       allocateId() {
         let id = generateId();
@@ -52,12 +53,13 @@ export function createSessionStore(generateId = () => nanoid(12)) {
           edges: Object.fromEntries(graph.edges.map(e => [e.id, e])),
           layouts: Object.fromEntries(graph.layouts.map(p => [layoutKey(p), p])),
           memberships: Object.fromEntries(graph.memberships.map(m => [membershipKey(m), m])),
+          attachments: Object.fromEntries(graph.attachments.map(a => [attachmentKey(a), a])),
           revision: graph.revision, loaded: true, loading: false, pending: {}, inFlight: null,
           loadVersion: get().loadVersion + 1,
           error: null, past: [], future: [],
         });
       },
-      edit(input) {
+      edit(input, mergeKey) {
         const state = get();
         if (!state.loaded || state.loading || !input.length) return false;
         const { document, changes } = applyDocumentChanges(state, input);
@@ -65,8 +67,11 @@ export function createSessionStore(generateId = () => nanoid(12)) {
           if (change.type === 'node.put') usedIds.add(change.node.id);
           if (change.type === 'edge.put') usedIds.add(change.edge.id);
         }
+        const previous = state.past.at(-1), time = Date.now();
+        const merge = mergeKey && previous?.mergeKey === mergeKey && time - previous.time < 1000 && !state.future.length;
+        const entry: HistoryEntry = { redo: changes, undo: merge ? previous.undo : invertChanges(state, changes), mergeKey, time };
         set({ ...document, pending: enqueue(state, changes),
-          past: [...state.past, { redo: changes, undo: invertChanges(state, changes) }].slice(-100), future: [] });
+          past: [...(merge ? state.past.slice(0, -1) : state.past), entry].slice(-100), future: [] });
         return true;
       },
       undo() {

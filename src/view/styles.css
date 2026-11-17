@@ -22,6 +22,10 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .surface { background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 2px 8px #17243b08, 0 1px 2px #17243b04; }
 .editor-header { position: absolute; inset: 24px 28px auto; display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 10; }
 .wordmark { font-size: 25px; font-weight: 650; letter-spacing: -1px; }
+.node-actions { position: absolute; top: 78px; left: 28px; display: flex; gap: 3px; padding: 5px; z-index: 20; }
+.node-actions button { padding: 8px 12px; font-size: 12px; }
+.interaction-message { position: absolute; top: 132px; left: 28px; max-width: calc(100% - 56px); padding: 10px 14px; z-index: 30; font-size: 12px; color: #9a4444; }
+.interaction-message button { margin-left: 12px; }
 .save-status { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 0 6px 12px; background: #fcfdff; }
 .save-status .icon { color: #299b79; width: 16px; height: 16px; }
 .save-status.is-pending .icon { color: #b88935; }

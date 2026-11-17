@@ -39,7 +39,7 @@ export class Autosave {
     clearTimeout(this.timer);
     const state = this.store.getState();
     if (this.disposed || this.busy || state.loading || !state.loaded || state.error || state.inFlight || !Object.keys(state.pending).length) return;
-    this.timer = setTimeout(() => { void this.flush(); }, 0);
+    this.timer = setTimeout(() => { void this.flush(); }, 300);
   }
 
   async flush() {

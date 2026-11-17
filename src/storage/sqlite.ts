@@ -11,8 +11,9 @@ import { validateMemberships } from '../core/graph.js';
 import type { Change } from '../runtime/protocol.js';
 import type { GraphStorage } from '../runtime/server/batches.js';
 import { WriteError } from '../runtime/errors.js';
+import type { StorageExtension } from './extensions.js';
 
-export function openDatabase(filename: string): GraphStorage {
+export function openDatabase(filename: string, extensions: StorageExtension[] = []): GraphStorage {
   if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
   const sqlite = new SQLite(filename);
   const db = drizzle(sqlite);
@@ -21,6 +22,11 @@ export function openDatabase(filename: string): GraphStorage {
   const layoutWhere = ({ contextNodeId, nodeId }: Pick<NodeLayout, 'contextNodeId' | 'nodeId'>) => and(
     eq(viewNodeLayouts.nodeId, nodeId), contextNodeId === null ? isNull(viewNodeLayouts.contextNodeId) : eq(viewNodeLayouts.contextNodeId, contextNodeId),
   );
+  function extension(namespace: string) {
+    const found = extensions.find(item => item.namespace === namespace);
+    if (!found) throw new WriteError(400, 'UNKNOWN_EXTENSION', '未启用对应业务模块');
+    return found;
+  }
   try {
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('journal_mode = WAL');
@@ -34,6 +40,7 @@ export function openDatabase(filename: string): GraphStorage {
 
   function readGraph(): GraphData {
     return db.transaction(tx => ({
+      attachments: extensions.flatMap(item => item.read(tx)),
       revision: tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!.revision,
       nodes: tx.select({ id: baseNodes.id }).from(baseNodes).orderBy(baseNodes.createdAt, baseNodes.id).all(),
       edges: tx.select({
@@ -53,6 +60,7 @@ export function openDatabase(filename: string): GraphStorage {
         getRevision: () => tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!.revision,
         applyChanges(changes: Change[]) {
           for (const change of changes) {
+            if (change.type === 'attachment.delete') extension(change.attachment.namespace).delete(tx, change.attachment.nodeId);
             if (change.type === 'edge.delete') tx.delete(baseEdges).where(eq(baseEdges.id, change.id)).run();
             if (change.type === 'membership.delete') tx.delete(baseMemberships).where(membershipWhere(change.membership)).run();
             if (change.type === 'layout.delete') tx.delete(viewNodeLayouts).where(layoutWhere(change.layout)).run();
@@ -65,6 +73,7 @@ export function openDatabase(filename: string): GraphStorage {
               .onConflictDoNothing({ target: baseNodes.id }).run();
           }
           for (const change of changes) {
+            if (change.type === 'attachment.put') extension(change.attachment.namespace).put(tx, change.attachment);
             if (change.type === 'membership.put') {
               tx.insert(baseMemberships).values({ ...change.membership, createdAt: now }).onConflictDoNothing().run();
             }

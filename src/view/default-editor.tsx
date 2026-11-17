@@ -17,9 +17,11 @@ export interface DefaultEditorProps {
   renderNode?: NodeRenderer;
   renderDetails?: (selection: CanvasSelection) => ReactNode;
   onOpenNode?: (nodeId: string) => void;
+  nodeActions?: Array<{ label: string; create: (position: { x: number; y: number }, contextNodeId: string | null) => void }>;
+  onConnect?: (source: string, target: string) => string | null;
 }
 
-export function DefaultEditor({ editor, saver, contextNodeId, renderNode, renderDetails, onOpenNode }: DefaultEditorProps) {
+export function DefaultEditor({ editor, saver, contextNodeId, renderNode, renderDetails, onOpenNode, nodeActions, onConnect }: DefaultEditorProps) {
   const state = useEditorState(editor, contextNodeId);
   const active = state.active;
   const inDialog = contextNodeId !== null;
@@ -27,6 +29,7 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
   const flow = useReactFlow();
   const canvas = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const dismissMenu = useCallback(() => { setMenu(null); canvas.current?.focus({ preventScroll: true }); }, []);
   const scope = useMemo(() => projectScope(state, state.contextNodeId),
@@ -96,7 +99,10 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
           const next = update({ nodes: current.selectedNodes, edges: current.selectedEdges });
           current.select(next.nodes, next.edges);
         }}
-        onConnect={connection => state.createEdge(connection.source, connection.target)}
+        onConnect={connection => {
+          if (onConnect) setConnectionError(onConnect(connection.source, connection.target));
+          else state.createEdge(connection.source, connection.target);
+        }}
         onPreviewPositions={positions => state.previewPositions(scopedPositions(positions))}
         onCommitPositions={(before, after) => state.commitPositions(scopedPositions(before), scopedPositions(after))}
         onOpenNode={onOpenNode ?? state.openScope} onContextMenu={openMenu} onInteractionStart={closeMenu} />
@@ -105,6 +111,14 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
       {inDialog ? <span className="canvas-caption">仅显示直接成员</span> : <strong className="wordmark">uknode</strong>}
       <output className={`save-status${state.error ? ' is-error' : dirty ? ' is-pending' : ''}`} aria-live={active ? 'polite' : 'off'} data-testid={inDialog ? 'dialog-save-status' : 'save-status'}><Icon name="check" />{status}</output>
     </header>
+    {nodeActions && <div className="node-actions surface" role="group" aria-label="业务节点">
+      {nodeActions.map(action => <button key={action.label} disabled={!canEdit} onClick={() => {
+        const rect = canvas.current!.getBoundingClientRect();
+        const offset = Object.keys(state.nodes).length % 6 * 24;
+        const position = flow.screenToFlowPosition({ x: rect.x + rect.width / 2 + offset, y: rect.y + rect.height / 2 + offset });
+        action.create(position, contextNodeId);
+      }}>{action.label}</button>)}
+    </div>}
     <div className="toolbar surface" role="group" aria-label="图编辑工具">
       <button aria-label="新增节点" title="新增节点" disabled={!canEdit} onClick={() => {
         const rect = canvas.current!.getBoundingClientRect();
@@ -125,13 +139,16 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
     {menu && <CanvasMenu menu={menu} disabled={!canEdit} onClose={dismissMenu} onCreate={() => {
       if (canEdit) state.createNode(menu.position.x, menu.position.y);
       dismissMenu();
-    }} onDelete={() => {
+    }} additionalCreates={nodeActions?.map(action => ({ label: action.label, run: () => {
+      action.create(menu.position, contextNodeId); dismissMenu();
+    } }))} onDelete={() => {
       if (canEdit) { state.select(menu.nodeIds, []); deleteSelected(); }
       dismissMenu();
     }} onDetach={inDialog ? () => {
       if (canEdit) { state.select(menu.nodeIds, []); state.removeSelectedMemberships(); }
       dismissMenu();
     } : undefined} />}
+    {connectionError && <div className="interaction-message surface" role="alert">{connectionError}<button onClick={() => setConnectionError(null)}>关闭</button></div>}
     {state.error && <div className="save-error surface" role="alert">
       <span>{state.error.message} </span>
       {state.error.retryable && <button onClick={() => void saver.retry()}>重试</button>}

@@ -8,7 +8,7 @@ import { openTestGraph } from './fixtures.js';
 import { createApp } from '../src/app/backend/routes.js';
 import type { GraphData } from '../src/runtime/document.js';
 
-const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
+const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], attachments: [], layouts: [] };
 const loadedStore = () => { const store = createTestEditor(); store.getState().hydrate(empty); return store; };
 
 test('receipt validation rejects wrong batch or revision without clearing in-flight or newer edits', () => {
@@ -91,7 +91,7 @@ test('drag frames do not queue writes; drag and cascaded deletion undo restore t
   const store = loadedStore();
   const a = nanoid(12), b = nanoid(12), edge = { id: nanoid(12), source: a, target: b, directed: false };
   const start = { contextNodeId: null, nodeId: a, x: 1, y: 2 }, end = { contextNodeId: null, nodeId: a, x: 60, y: 70 };
-  store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], memberships: [], layouts: [start, { contextNodeId: null, nodeId: b, x: 100, y: 100 }] });
+  store.getState().hydrate({ revision: 1, nodes: [{ id: a }, { id: b }], edges: [edge], memberships: [], attachments: [], layouts: [start, { contextNodeId: null, nodeId: b, x: 100, y: 100 }] });
   store.getState().previewPositions([{ ...start, x: 30 }]);
   assert.deepEqual(store.getState().pending, {});
   store.getState().commitPositions([start], [end]);

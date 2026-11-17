@@ -76,7 +76,7 @@ test('an invalid edge or duplicate change rolls back the entire batch', t => {
     { type: 'edge.put', edge: { id: nanoid(12), source: id, target: nanoid(12), directed: false } },
   ]);
   assert.throws(() => db.applyBatch(invalid), /节点或范围不存在/);
-  assert.deepEqual(db.readGraph(), { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] });
+  assert.deepEqual(db.readGraph(), { revision: 0, nodes: [], edges: [], memberships: [], attachments: [], layouts: [] });
   assert.throws(() => db.applyBatch(batch(0, [{ type: 'node.put', node: { id } }, { type: 'node.delete', id }])), /只能出现一次/);
   assert.equal(db.readGraph().revision, 0);
   // Failed transactions must not leave an idempotency receipt behind.

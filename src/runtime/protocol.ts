@@ -1,7 +1,10 @@
 import { graphChangeKey, type GraphChange } from '../core/changes.js';
 import { layoutKey, type NodeLayout } from './document.js';
+import { attachmentKey, type NodeAttachment, type AttachmentRef } from './attachments.js';
 
 export type Change = GraphChange
+  | { type: 'attachment.put'; attachment: NodeAttachment }
+  | { type: 'attachment.delete'; attachment: AttachmentRef }
   | { type: 'layout.put'; layout: NodeLayout }
   | { type: 'layout.delete'; layout: Pick<NodeLayout, 'contextNodeId' | 'nodeId'> };
 
@@ -15,6 +18,7 @@ export interface Receipt { batchId: string; revision: number }
 
 export function changeKey(change: Change): string {
   switch (change.type) {
+    case 'attachment.put': case 'attachment.delete': return `attachment:${attachmentKey(change.attachment)}`;
     case 'layout.put': case 'layout.delete': return `layout:${layoutKey(change.layout)}`;
     default: return graphChangeKey(change);
   }
@@ -22,6 +26,7 @@ export function changeKey(change: Change): string {
 
 const id = { type: 'string', minLength: 12, maxLength: 12, pattern: '^[A-Za-z0-9_-]+$' };
 const contextNodeId = { anyOf: [id, { type: 'null' }] };
+const namespace = { type: 'string', minLength: 1, maxLength: 64, pattern: '^[a-z][a-z0-9-]*$' };
 const coordinate = { type: 'number', minimum: -10_000_000, maximum: 10_000_000 };
 const object = (properties: Record<string, unknown>) => ({
   type: 'object', properties, required: Object.keys(properties), additionalProperties: false,
@@ -33,6 +38,8 @@ export const batchSchema = object({
   changes: {
     type: 'array', minItems: 1, maxItems: 10_000,
     items: { oneOf: [
+      object({ type: { const: 'attachment.put' }, attachment: object({ namespace, nodeId: id, data: { type: 'object' } }) }),
+      object({ type: { const: 'attachment.delete' }, attachment: object({ namespace, nodeId: id }) }),
       object({ type: { const: 'node.put' }, node: object({ id }) }),
       object({ type: { const: 'node.delete' }, id }),
       object({ type: { const: 'edge.put' }, edge: object({

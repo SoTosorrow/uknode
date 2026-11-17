@@ -19,7 +19,7 @@ import type { Change, ChangeBatch } from '../src/runtime/protocol.js';
 const batch = (expectedRevision: number, changes: Change[]): ChangeBatch => ({ batchId: nanoid(12), expectedRevision, changes });
 const putMember = (containerId: string, memberId: string): Change => ({ type: 'membership.put', membership: { containerId, memberId } });
 const dropMember = (containerId: string, memberId: string): Change => ({ type: 'membership.delete', membership: { containerId, memberId } });
-const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], layouts: [] };
+const empty: GraphData = { revision: 0, nodes: [], edges: [], memberships: [], attachments: [], layouts: [] };
 
 test('upgrading the original populated schema preserves global coordinates and enforces scoped uniqueness', t => {
   const dir = mkdtempSync(join(tmpdir(), 'uknode-upgrade-'));
@@ -39,7 +39,7 @@ test('upgrading the original populated schema preserves global coordinates and e
   old.close();
 
   const upgraded = openTestGraph(file);
-  assert.deepEqual(upgraded.readGraph(), { revision: 8, nodes: [{ id }], edges: [], memberships: [], layouts: [{ contextNodeId: null, nodeId: id, x: -175.25, y: 48.5 }] });
+  assert.deepEqual(upgraded.readGraph(), { revision: 8, nodes: [{ id }], edges: [], memberships: [], attachments: [], layouts: [{ contextNodeId: null, nodeId: id, x: -175.25, y: 48.5 }] });
   upgraded.applyBatch(batch(8, [{ type: 'layout.put', layout: { contextNodeId: id, nodeId: id, x: 100, y: 200 } }]));
   upgraded.close();
   const check = new SQLite(file);

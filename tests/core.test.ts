@@ -42,7 +42,7 @@ for (const phase of ['unsent', 'in-flight', 'saved'] as const) {
 
 test('layout edits preserve graph references and do not reconcile editor navigation', t => {
   const session = createSessionStore();
-  session.getState().hydrate({ revision: 0, nodes: [{ id: 'anchorNode01' }], edges: [], memberships: [], layouts: [] });
+  session.getState().hydrate({ revision: 0, nodes: [{ id: 'anchorNode01' }], edges: [], memberships: [], attachments: [], layouts: [] });
   const editor = createEditor(session); t.after(editor.dispose);
   const before = session.getState();
   let viewUpdates = 0;

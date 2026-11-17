@@ -22,6 +22,13 @@
       "when": 1794843275701,
       "tag": "0002_remove_edge_description",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794845423198,
+      "tag": "0003_ai_video",
+      "breakpoints": true
     }
   ]
 }
