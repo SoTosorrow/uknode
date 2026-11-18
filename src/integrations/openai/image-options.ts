@@ -3,8 +3,7 @@ export const imageModels = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as 
 export const defaultImageModel = imageModels[0];
 export const imageSizes = [
   ['1:1', '1024x1024'], ['16:9', '1536x864'], ['9:16', '864x1536'],
-  ['3:2', '1536x1024'], ['2:3', '1024x1536'], ['4:3', '1280x960'], ['3:4', '960x1280'],
-  ['4:5', '1024x1280'], ['5:4', '1280x1024'], ['21:9', '1792x768'],
+  ['4:3', '1280x960'],
 ] as const;
 export const imageQualities = ['low', 'medium', 'high'] as const;
 

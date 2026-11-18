@@ -86,7 +86,7 @@ export function DefaultEditor({ editor, saver, initialNodeId, namespace, activit
   return <section className="editor-shell" data-testid="main-editor" aria-label="项目画布">
     <div className="canvas" ref={canvas} tabIndex={-1} aria-label="节点画布">
       <GraphCanvas id="main-flow" viewKey={state.project!.id} initialNodeId={initialNodeId}
-        nodeIds={nodeIds} edges={edges} positions={displayedLayouts}
+        nodeIds={nodeIds} edges={edges} positions={displayedLayouts} groups={state.groups} groupByNode={state.groupByNode}
         selection={{ nodes: state.selectedNodes, edges: state.selectedEdges }} enabled={canEdit} renderNode={renderNode}
         onSelect={update => {
           const current = editor.getState();

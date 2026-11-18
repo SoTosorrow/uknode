@@ -280,8 +280,9 @@ test('canvas thumbnails are resized in memory and original files stay available 
 });
 
 test('all aspect presets and custom image sizes obey the GPT Image 2.5 bounds', () => {
+  assert.deepEqual(imageSizes.map(([ratio]) => ratio), ['1:1', '16:9', '9:16', '4:3']);
   for (const [, size] of imageSizes) assert.equal(imageSizeError(size), undefined);
-  for (const size of ['1344x896', '1024x640', '3840x2160']) assert.equal(imageSizeError(size), undefined);
+  for (const size of ['1344x896', '1536x1024', '1024x640', '3840x2160']) assert.equal(imageSizeError(size), undefined);
   for (const size of ['1920x1080', '512x512', '3072x960', '3840x3840', '4096x2048', '0x640', 'abc']) assert.ok(imageSizeError(size));
 });
 

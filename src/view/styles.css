@@ -52,6 +52,15 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .react-flow__node.selected .react-flow__handle { background: var(--accent); }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 1.6; }
 .react-flow__nodesselection-rect { border-radius: 8px; }
+.react-flow__viewport-portal:has(.group-frames) { z-index: 0; }
+.react-flow__nodes { z-index: 1; }
+.group-frames { position: absolute; overflow: visible; pointer-events: none; }
+.group-frame { cursor: grab; touch-action: none; }
+.group-frame:active { cursor: grabbing; }
+.group-frame-fill { fill: #7893b80a; stroke: #b8c7d8; stroke-dasharray: 5 4; }
+.group-frame-border { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; }
+.group-frame-title { pointer-events: auto; }
+.group-frame-title span { display: block; padding: 5px 2px; font-size: 13px; font-weight: 600; color: #536781; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .react-flow__attribution { font-size: 8px; opacity: 0.55; }
 
 .details-panel { position: absolute; right: 24px; bottom: 26px; width: 292px; max-height: calc(100dvh - 140px); overflow: auto; padding: 15px 17px 18px; z-index: 20; }

@@ -103,7 +103,7 @@ export function Home() {
           onChange={e => setName(e.target.value)} /><button disabled={!projects || creating || !name.trim()}>新建项目</button></form>
         {!projects && !error && <p role="status">读取中…</p>}
         {items?.map(project => <button className="project-option" key={project.id} aria-pressed={!showLibrary && selected?.id === project.id}
-          onClick={() => selectProject(project.id)}>{project.name}</button>)}
+          onClick={() => selectProject(project.id)} onDoubleClick={() => location.assign('/?project=' + project.id)}>{project.name}</button>)}
       </section>
       {showLibrary ? <Suspense fallback={<p role="status">读取中…</p>}><AssetLibrary /></Suspense>
         : selected ? <Overview key={selected.id} project={selected} /> : projects && <p>创建项目后可查看节点和连线。</p>}
