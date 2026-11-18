@@ -1,0 +1,59 @@
+import { graphChangeKey, type GraphChange } from '../core/changes.js';
+import type { GroupChange } from './node-groups.js';
+import { type NodeLayout } from './document.js';
+import { attachmentKey, type NodeAttachment, type AttachmentRef } from './attachments.js';
+
+export type Change = GraphChange | GroupChange
+  | { type: 'attachment.put'; attachment: NodeAttachment }
+  | { type: 'attachment.delete'; attachment: AttachmentRef }
+  | { type: 'layout.put'; layout: NodeLayout }
+  | { type: 'layout.delete'; layout: Pick<NodeLayout, 'nodeId'> };
+
+export interface ChangeBatch {
+  batchId: string;
+  expectedRevision: number;
+  changes: Change[];
+}
+
+export interface Receipt { batchId: string; revision: number }
+
+export function changeKey(change: Change): string {
+  switch (change.type) {
+    case 'group.put': return `group:${change.group.id}`;
+    case 'group.delete': return `group:${change.id}`;
+    case 'groupNode.set': return `groupNode:${change.nodeId}`;
+    case 'attachment.put': case 'attachment.delete': return `attachment:${attachmentKey(change.attachment)}`;
+    case 'layout.put': case 'layout.delete': return `layout:${change.layout.nodeId}`;
+    default: return graphChangeKey(change);
+  }
+}
+
+const id = { type: 'string', minLength: 12, maxLength: 12, pattern: '^[A-Za-z0-9_-]+$' };
+const namespace = { type: 'string', minLength: 1, maxLength: 64, pattern: '^[a-z][a-z0-9-]*$' };
+const coordinate = { type: 'number', minimum: -10_000_000, maximum: 10_000_000 };
+const object = (properties: Record<string, unknown>) => ({
+  type: 'object', properties, required: Object.keys(properties), additionalProperties: false,
+});
+
+export const batchSchema = object({
+  batchId: id,
+  expectedRevision: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 1 },
+  changes: {
+    type: 'array', minItems: 1, maxItems: 10_000,
+    items: { oneOf: [
+      object({ type: { const: 'group.put' }, group: object({ id, name: { type: 'string', minLength: 1, maxLength: 100, pattern: '\\S' } }) }),
+      object({ type: { const: 'group.delete' }, id }),
+      object({ type: { const: 'groupNode.set' }, nodeId: id, groupId: { anyOf: [id, { type: 'null' }] } }),
+      object({ type: { const: 'attachment.put' }, attachment: object({ namespace, nodeId: id, data: { type: 'object' } }) }),
+      object({ type: { const: 'attachment.delete' }, attachment: object({ namespace, nodeId: id }) }),
+      object({ type: { const: 'node.put' }, node: object({ id }) }),
+      object({ type: { const: 'node.delete' }, id }),
+      object({ type: { const: 'edge.put' }, edge: object({
+        id, source: id, target: id, directed: { type: 'boolean' },
+      }) }),
+      object({ type: { const: 'edge.delete' }, id }),
+      object({ type: { const: 'layout.put' }, layout: object({ nodeId: id, x: coordinate, y: coordinate }) }),
+      object({ type: { const: 'layout.delete' }, layout: object({ nodeId: id }) }),
+    ] },
+  },
+});
