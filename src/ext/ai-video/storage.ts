@@ -3,15 +3,17 @@ import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { StorageExtension } from '../../storage/extensions.js';
 import { WriteError } from '../../runtime/errors.js';
+import { baseNodes } from '../../storage/schema.js';
 import { namespace, parseVideoData, videoAttachment, type VideoData } from './model.js';
 import { videoNodes } from './schema.js';
 
 export function videoStorage(directory: string): StorageExtension {
   return {
     namespace,
-    read(db) {
-      return db.select().from(videoNodes).orderBy(videoNodes.nodeId).all().map(row => {
-        const data: VideoData = row.kind === 'image' ? { kind: row.kind, path: row.imagePath, name: row.imageName! }
+    read(db, projectId) {
+      return db.select().from(videoNodes).innerJoin(baseNodes, eq(baseNodes.id, videoNodes.nodeId))
+        .where(eq(baseNodes.projectId, projectId)).orderBy(videoNodes.nodeId).all().map(({ ext_ai_video_nodes: row }) => {
+        const data: VideoData = row.kind === 'image' ? { kind: row.kind, path: row.imagePath, name: row.imageName!, prompt: row.prompt ?? '' }
           : row.kind === 'prompt' ? { kind: row.kind, text: row.prompt! }
             : { kind: row.kind, outputFilename: row.outputFilename!, steps: row.steps, inputOrder: row.inputOrder! };
         return videoAttachment(row.nodeId, data);
@@ -20,12 +22,14 @@ export function videoStorage(directory: string): StorageExtension {
     put(db, attachment) {
       const data = parseVideoData(attachment.data);
       if (data.kind === 'image' && data.path && !existsSync(resolve(directory, data.path))) {
-        throw new WriteError('MISSING_IMAGE', '图片文件不存在，请重新上传');
+        // An existing broken reference can still save its prompt while the user repairs it.
+        const previous = db.select({ path: videoNodes.imagePath }).from(videoNodes).where(eq(videoNodes.nodeId, attachment.nodeId)).get();
+        if (previous?.path !== data.path) throw new WriteError('MISSING_IMAGE', '图片文件不存在，请重新上传');
       }
       const row = {
         nodeId: attachment.nodeId, kind: data.kind,
         imagePath: data.kind === 'image' ? data.path : null, imageName: data.kind === 'image' ? data.name : null,
-        prompt: data.kind === 'prompt' ? data.text : null,
+        prompt: data.kind === 'image' ? data.prompt : data.kind === 'prompt' ? data.text : null,
         outputFilename: data.kind === 'output' ? data.outputFilename : null,
         steps: data.kind === 'output' ? data.steps : null, inputOrder: data.kind === 'output' ? data.inputOrder : null,
       };

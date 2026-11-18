@@ -6,14 +6,9 @@ export interface BaseEdge {
   target: string;
   directed: boolean;
 }
-export interface Membership { containerId: string; memberId: string }
-
-export function membershipKey({ containerId, memberId }: Membership): string {
-  return `${containerId}:${memberId}`;
-}
+export interface Project { id: string; name: string; business: string }
 
 export interface GraphObjects {
   nodes: Record<string, BaseNode>;
   edges: Record<string, BaseEdge>;
-  memberships: Record<string, Membership>;
 }

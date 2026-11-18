@@ -21,11 +21,18 @@ export function createApp(service: GraphService, options: { dev?: boolean; logge
     }
     if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
   });
-  app.get('/api/graph', () => service.readGraph());
-  app.post<{ Body: ChangeBatch }>('/api/changes', { schema: { body: batchSchema } }, request => service.applyBatch(request.body));
+  app.get('/api/projects', () => service.listProjects());
+  app.post<{ Body: { name: string; business: string } }>('/api/projects', {
+    schema: { body: { type: 'object', required: ['name', 'business'], additionalProperties: false,
+      properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, business: { type: 'string', minLength: 1, maxLength: 64 } } } },
+  }, (request, reply) => reply.code(201).send(service.createProject(request.body.name, request.body.business)));
+  type Params = { projectId: string };
+  app.get<{ Params: Params }>('/api/projects/:projectId/graph', request => service.readGraph(request.params.projectId));
+  app.post<{ Params: Params; Body: ChangeBatch }>('/api/projects/:projectId/changes', { schema: { body: batchSchema } },
+    request => service.applyBatch(request.params.projectId, request.body));
   app.setErrorHandler<FastifyError>((error, request, reply) => {
     if (error instanceof WriteError) {
-      const status = error.code === 'REVISION_CONFLICT' ? 409 : 400;
+      const status = error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'PROJECT_NOT_FOUND' ? 404 : 400;
       return reply.code(status).send({ code: error.code, message: error.message });
     }
     if (error.validation) return reply.code(400).send({ code: 'INVALID_BATCH', message: '提交内容不符合接口定义，修改仍保留在本页' });

@@ -1,5 +1,4 @@
-import { membershipKey } from '../../core/model.js';
-import { layoutKey, type DocumentObjects } from '../document.js';
+import { type DocumentObjects } from '../document.js';
 import type { Change } from '../protocol.js';
 import { attachmentKey } from '../attachments.js';
 
@@ -40,16 +39,10 @@ export function invertChanges(graph: DocumentObjects, changes: Change[]): Change
         if (edge) inverse.push({ type: 'edge.put', edge });
         break;
       }
-      case 'membership.put': case 'membership.delete': {
-        const previous = graph.memberships[membershipKey(change.membership)];
-        if (previous) inverse.push({ type: 'membership.put', membership: previous });
-        else if (change.type === 'membership.put') inverse.push({ type: 'membership.delete', membership: change.membership });
-        break;
-      }
       case 'layout.put': case 'layout.delete': {
-        const previous = graph.layouts[layoutKey(change.layout)];
+        const previous = graph.layouts[change.layout.nodeId];
         if (previous) inverse.push({ type: 'layout.put', layout: previous });
-        else if (change.type === 'layout.put') inverse.push({ type: 'layout.delete', layout: { contextNodeId: change.layout.contextNodeId, nodeId: change.layout.nodeId } });
+        else if (change.type === 'layout.put') inverse.push({ type: 'layout.delete', layout: { nodeId: change.layout.nodeId } });
         break;
       }
     }

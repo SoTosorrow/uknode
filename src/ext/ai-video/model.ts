@@ -3,7 +3,7 @@ import { WriteError } from '../../runtime/errors.js';
 import type { DocumentObjects } from '../../runtime/document.js';
 
 export const namespace = 'ai-video';
-export type ImageData = { kind: 'image'; path: string | null; name: string };
+export type ImageData = { kind: 'image'; path: string | null; name: string; prompt: string };
 export type PromptData = { kind: 'prompt'; text: string };
 export type OutputData = { kind: 'output'; outputFilename: string; steps: number | null; inputOrder: string[] };
 export type VideoData = ImageData | PromptData | OutputData;
@@ -15,8 +15,14 @@ export function videoAttachment(nodeId: string, data: VideoData): NodeAttachment
 export function videoData(document: Pick<DocumentObjects, 'attachments'>, nodeId: string): VideoData | undefined {
   return document.attachments[attachmentKey({ namespace, nodeId })]?.data as VideoData | undefined;
 }
+export function videoSummary(data: VideoData): string {
+  if (data.kind === 'image') return data.name ? `图片 · ${data.name}` : '图片';
+  if (data.kind === 'prompt') return data.text ? `提示词 · ${data.text}` : '提示词';
+  return data.outputFilename ? `配置 · ${data.outputFilename}` : '配置';
+}
+
 export function initialData(kind: VideoData['kind']): VideoData {
-  if (kind === 'image') return { kind, path: null, name: '' };
+  if (kind === 'image') return { kind, path: null, name: '', prompt: '' };
   if (kind === 'prompt') return { kind, text: '' };
   return { kind, outputFilename: 'video', steps: 15, inputOrder: [] };
 }
@@ -25,8 +31,9 @@ export function initialData(kind: VideoData['kind']): VideoData {
 export function parseVideoData(value: Record<string, unknown>): VideoData {
   const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
   const { kind, name, path, outputFilename, steps, inputOrder } = value;
-  if (kind === 'image' && text(name, 255) && (path === null || (typeof path === 'string' && assetPattern.test(path)))) {
-    return { kind, name, path };
+  const prompt = value.prompt === undefined ? '' : value.prompt;
+  if (kind === 'image' && text(prompt, 20000) && text(name, 255) && (path === null || (typeof path === 'string' && assetPattern.test(path)))) {
+    return { kind, name, path, prompt };
   }
   if (kind === 'prompt' && text(value.text, 20000)) return { kind, text: value.text };
   if (kind === 'output' && text(outputFilename, 100)

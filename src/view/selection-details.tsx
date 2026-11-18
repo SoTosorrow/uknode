@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { EditorUIState } from './use-editor.js';
 import type { NodeLayout } from '../runtime/document.js';
 import type { CanvasSelection } from './graph-canvas.js';
-import { MembershipEditor } from './scope-controls.js';
 import { DetailsPanel } from './editor-overlays.js';
 
 export function SelectionDetails({ state, layouts, structural, renderDetails }: {
@@ -20,9 +19,10 @@ export function SelectionDetails({ state, layouts, structural, renderDetails }: 
   const visible = Boolean(nodeIds.length || edgeIds.length);
   return <DetailsPanel title={title} visible={visible}>
     {node ? <>
-      <div className="detail-field"><span>节点 ID</span><code className="full-id">{node.id}</code></div>
-      <dl className="coordinate-row"><div><dt>X</dt><dd>{Number((layout?.x ?? 0).toFixed(1))}</dd></div><div><dt>Y</dt><dd>{Number((layout?.y ?? 0).toFixed(1))}</dd></div></dl>
-      {structural && <MembershipEditor key={`${state.contextNodeId}:${node.id}`} nodeId={node.id} state={state} />}
+      <p className="node-meta" aria-label="节点 ID 和坐标">
+        <span>ID <code>{node.id}</code></span>
+        {layout && <><span>X {Number(layout.x.toFixed(1))}</span><span>Y {Number(layout.y.toFixed(1))}</span></>}
+      </p>
     </> : edge ? <>
       <dl className="endpoint-list">
         <div><dt>起点</dt><dd><code>{edge.source}</code></dd></div>

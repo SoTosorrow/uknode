@@ -8,6 +8,7 @@ export const videoNodes = sqliteTable('ext_ai_video_nodes', {
   kind: text('kind', { enum: ['image', 'prompt', 'output'] }).notNull(),
   imagePath: text('image_path'),
   imageName: text('image_name'),
+  // Per-node text: image generation instructions or a video prompt, according to kind.
   prompt: text('prompt'),
   outputFilename: text('output_filename'),
   steps: integer('steps'),

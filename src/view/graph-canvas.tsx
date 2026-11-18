@@ -51,8 +51,7 @@ function selectChanged(ids: string[], changes: Array<{ id: string; selected: boo
   return [...selected];
 }
 
-// This component knows only the visible graph and canvas gestures. Membership,
-// persistence, navigation and the meaning of an open/connect action stay outside.
+// The caller supplies the project graph and handles edits and navigation.
 export function GraphCanvas(props: GraphCanvasProps) {
   const { nodeIds, positions, selection, enabled, viewKey, renderNode } = props;
   const flow = useReactFlow();

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useReactFlow, useViewport } from '@xyflow/react';
 
-type IconName = 'plus' | 'minus' | 'trash' | 'undo' | 'redo' | 'fit' | 'check' | 'chevron' | 'close' | 'unlink';
+type IconName = 'plus' | 'minus' | 'trash' | 'undo' | 'redo' | 'fit' | 'check' | 'chevron' | 'close';
 const icons: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
   minus: <path d="M5 12h14" />,
@@ -12,7 +12,6 @@ const icons: Record<IconName, ReactNode> = {
   check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></>,
   chevron: <path d="m6 9 6 6 6-6" />,
   close: <path d="m6 6 12 12M6 18 18 6" />,
-  unlink: <path d="m4 4 16 16M10 7l2-2a5 5 0 0 1 7 7l-2 2M7 10l-2 2a5 5 0 0 0 7 7l2-2" />,
 };
 
 export function Icon({ name }: { name: IconName }) {
@@ -53,13 +52,12 @@ export interface CanvasMenuState {
   nodeIds: string[];
 }
 
-export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDelete, onDetach, onClose }: {
+export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDelete, onClose }: {
   menu: CanvasMenuState;
   disabled: boolean;
   onCreate?: () => void;
   additionalCreates?: Array<{ label: string; run: () => void }>;
   onDelete: () => void;
-  onDetach?: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -99,7 +97,6 @@ export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDele
   }}>
     {onCreate && <button role="menuitem" disabled={disabled} onClick={onCreate}><Icon name="plus" />新增节点</button>}
     {additionalCreates?.map(action => <button key={action.label} role="menuitem" disabled={disabled} onClick={action.run}><Icon name="plus" />{action.label}</button>)}
-    {onDetach && <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDetach}><Icon name="unlink" />解除收录{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>}
-    <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDelete}><Icon name="trash" />{onDetach ? '彻底删除节点' : '删除节点'}{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>
+    <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDelete}><Icon name="trash" />删除节点{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>
   </div>;
 }

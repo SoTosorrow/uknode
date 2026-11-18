@@ -1,12 +1,12 @@
 import { graphChangeKey, type GraphChange } from '../core/changes.js';
-import { layoutKey, type NodeLayout } from './document.js';
+import { type NodeLayout } from './document.js';
 import { attachmentKey, type NodeAttachment, type AttachmentRef } from './attachments.js';
 
 export type Change = GraphChange
   | { type: 'attachment.put'; attachment: NodeAttachment }
   | { type: 'attachment.delete'; attachment: AttachmentRef }
   | { type: 'layout.put'; layout: NodeLayout }
-  | { type: 'layout.delete'; layout: Pick<NodeLayout, 'contextNodeId' | 'nodeId'> };
+  | { type: 'layout.delete'; layout: Pick<NodeLayout, 'nodeId'> };
 
 export interface ChangeBatch {
   batchId: string;
@@ -19,13 +19,12 @@ export interface Receipt { batchId: string; revision: number }
 export function changeKey(change: Change): string {
   switch (change.type) {
     case 'attachment.put': case 'attachment.delete': return `attachment:${attachmentKey(change.attachment)}`;
-    case 'layout.put': case 'layout.delete': return `layout:${layoutKey(change.layout)}`;
+    case 'layout.put': case 'layout.delete': return `layout:${change.layout.nodeId}`;
     default: return graphChangeKey(change);
   }
 }
 
 const id = { type: 'string', minLength: 12, maxLength: 12, pattern: '^[A-Za-z0-9_-]+$' };
-const contextNodeId = { anyOf: [id, { type: 'null' }] };
 const namespace = { type: 'string', minLength: 1, maxLength: 64, pattern: '^[a-z][a-z0-9-]*$' };
 const coordinate = { type: 'number', minimum: -10_000_000, maximum: 10_000_000 };
 const object = (properties: Record<string, unknown>) => ({
@@ -46,9 +45,8 @@ export const batchSchema = object({
         id, source: id, target: id, directed: { type: 'boolean' },
       }) }),
       object({ type: { const: 'edge.delete' }, id }),
-      object({ type: { enum: ['membership.put', 'membership.delete'] }, membership: object({ containerId: id, memberId: id }) }),
-      object({ type: { const: 'layout.put' }, layout: object({ contextNodeId, nodeId: id, x: coordinate, y: coordinate }) }),
-      object({ type: { const: 'layout.delete' }, layout: object({ contextNodeId, nodeId: id }) }),
+      object({ type: { const: 'layout.put' }, layout: object({ nodeId: id, x: coordinate, y: coordinate }) }),
+      object({ type: { const: 'layout.delete' }, layout: object({ nodeId: id }) }),
     ] },
   },
 });

@@ -13,7 +13,7 @@ export class Autosave {
   private generation = 0;
   private unsubscribe: () => void;
 
-  constructor(private store: SessionStore, private http: AxiosInstance = axios.create({ baseURL: '/api', timeout: 10_000 })) {
+  constructor(private store: SessionStore, private http: AxiosInstance) {
     this.unsubscribe = store.subscribe(() => this.schedule());
   }
 

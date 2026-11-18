@@ -7,9 +7,8 @@ import SQLite from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { openTestGraph } from './fixtures.js';
-import { WriteError } from '../src/runtime/errors.js';
 
-test('removing edge descriptions preserves identities, directions, timestamps and relationships', t => {
+test('project reset discards legacy data once and preserves new edits after reopening', t => {
   const dir = mkdtempSync(join(tmpdir(), 'uknode-description-migration-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const folder = join(dir, 'migrations'); mkdirSync(join(folder, 'meta'), { recursive: true });
@@ -38,23 +37,21 @@ test('removing edge descriptions preserves identities, directions, timestamps an
   const service = openTestGraph(file);
   try {
     const graph = service.readGraph();
-    assert.equal(graph.revision, 8);
-    assert.deepEqual(new Set(graph.edges), new Set(edges));
-    assert.deepEqual(graph.nodes, [{ id: a }, { id: b }]);
-    assert.deepEqual(graph.memberships, [{ containerId: a, memberId: b }]);
-    assert.deepEqual(graph.layouts, [{ contextNodeId: null, nodeId: a, x: 1, y: 2 }, { contextNodeId: a, nodeId: b, x: 3, y: 4 }]);
-    assert.throws(() => service.applyBatch({ batchId: 'oldBatch0001', expectedRevision: 6, changes: [{ type: 'node.put', node: { id: a } }] }),
-      error => error instanceof WriteError && error.code === 'REVISION_CONFLICT');
+    assert.equal(graph.revision, 0);
+    assert.deepEqual(graph.nodes, []);
+    assert.deepEqual(graph.edges, []);
+    assert.deepEqual(graph.layouts, []);
+    service.applyBatch({ batchId: 'newBatch0001', expectedRevision: 0, changes: [{ type: 'node.put', node: { id: a } }] });
   } finally { service.close(); }
   const raw = new SQLite(file);
   try {
-    assert.deepEqual((raw.pragma('table_info(base_edges)') as Array<{ name: string }>).map(c => c.name),
-      ['id', 'source_node_id', 'target_node_id', 'directed', 'created_at', 'updated_at']);
-    assert.deepEqual(raw.prepare('SELECT DISTINCT created_at, updated_at FROM base_edges').all(), [{ created_at: 30, updated_at: 40 }]);
-    assert.deepEqual(raw.prepare('SELECT * FROM base_batch_receipts').all(), []);
+    assert.equal(raw.prepare("SELECT name FROM sqlite_schema WHERE name='base_memberships'").get(), undefined);
     assert.deepEqual(raw.pragma('foreign_key_check'), []);
     assert.equal(raw.pragma('integrity_check', { simple: true }), 'ok');
   } finally { raw.close(); }
   const reopened = openTestGraph(file);
-  try { assert.equal(reopened.readGraph().revision, 8); } finally { reopened.close(); }
+  try {
+    assert.equal(reopened.readGraph().revision, 1);
+    assert.deepEqual(reopened.readGraph().nodes, [{ id: a }]);
+  } finally { reopened.close(); }
 });

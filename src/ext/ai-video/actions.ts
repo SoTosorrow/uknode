@@ -1,7 +1,7 @@
 import type { SessionStore } from '../../runtime/client/session.js';
 import { WriteError } from '../../runtime/errors.js';
 import { initialData, videoAttachment, videoData, type VideoData } from './model.js';
-import { inputsFor } from './config.js';
+import { orderedSources } from './inputs.js';
 
 export function createVideoNode(session: SessionStore, kind: VideoData['kind'], position: { x: number; y: number }) {
   const state = session.getState();
@@ -9,7 +9,7 @@ export function createVideoNode(session: SessionStore, kind: VideoData['kind'], 
   const id = state.allocateId();
   state.edit([
     { type: 'node.put', node: { id } },
-    { type: 'layout.put', layout: { nodeId: id, contextNodeId: null, ...position } },
+    { type: 'layout.put', layout: { nodeId: id, ...position } },
     { type: 'attachment.put', attachment: videoAttachment(id, initialData(kind)) },
   ]);
   return id;
@@ -19,8 +19,8 @@ export function connectVideo(session: SessionStore, source: string, target: stri
   const state = session.getState(), from = videoData(state, source), to = videoData(state, target);
   if (!state.loaded || state.loading) return '数据尚未读取完成';
   if ((from?.kind !== 'image' && from?.kind !== 'prompt') || to?.kind !== 'output') return '请从图片或提示词节点的右侧，连接到配置节点的左侧';
-  if (Object.values(state.edges).some(edge => edge.source === source && edge.target === target)) return '这两个节点已经连接';
-  const order = inputsFor(state, target).map(input => input.nodeId);
+  const order = orderedSources(state, target, to.inputOrder).map(input => input.nodeId);
+  if (order.includes(source)) return '这两个节点已经连接';
   state.edit([
     { type: 'edge.put', edge: { id: state.allocateId(), source, target, directed: true } },
     { type: 'attachment.put', attachment: videoAttachment(target, { ...to, inputOrder: [...order, source] }) },
@@ -40,7 +40,7 @@ export function updateVideoNode(session: SessionStore, nodeId: string, data: Vid
 export function moveInput(session: SessionStore, outputId: string, nodeId: string, offset: number) {
   const state = session.getState(), output = videoData(state, outputId);
   if (output?.kind !== 'output') return;
-  const inputOrder = inputsFor(state, outputId).map(input => input.nodeId), index = inputOrder.indexOf(nodeId), next = index + offset;
+  const inputOrder = orderedSources(state, outputId, output.inputOrder).map(input => input.nodeId), index = inputOrder.indexOf(nodeId), next = index + offset;
   if (index < 0 || next < 0 || next >= inputOrder.length) return;
   [inputOrder[index], inputOrder[next]] = [inputOrder[next], inputOrder[index]];
   updateVideoNode(session, outputId, { ...output, inputOrder });

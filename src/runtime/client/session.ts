@@ -1,13 +1,14 @@
 import { createStore } from 'zustand/vanilla';
 import { nanoid } from 'nanoid';
-import { membershipKey } from '../../core/model.js';
-import { applyDocumentChanges, layoutKey, type DocumentObjects, type GraphData } from '../document.js';
+import type { Project } from '../../core/model.js';
+import { applyDocumentChanges, type DocumentObjects, type GraphData } from '../document.js';
 import { changeKey, type Change, type ChangeBatch, type Receipt } from '../protocol.js';
 import { invertChanges, type HistoryEntry } from './history.js';
 import { attachmentKey } from '../attachments.js';
 
 export interface SaveError { message: string; retryable: boolean; phase: 'load' | 'save' | 'validation' }
 export interface SessionState extends DocumentObjects {
+  project: Project | null;
   loaded: boolean;
   loading: boolean;
   loadVersion: number;
@@ -36,15 +37,15 @@ function queueEdit(state: SessionState, changes: Change[]) {
 
 export function createSessionStore() {
   return createStore<SessionState>((set, get) => ({
-    nodes: {}, edges: {}, layouts: {}, memberships: {}, attachments: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
+    nodes: {}, edges: {}, layouts: {}, project: null, attachments: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
     pending: {}, inFlight: null, error: null, editMessage: null, past: [], future: [],
     allocateId: () => nanoid(12),
     hydrate(graph) {
       set({
         nodes: Object.fromEntries(graph.nodes.map(n => [n.id, n])),
         edges: Object.fromEntries(graph.edges.map(e => [e.id, e])),
-        layouts: Object.fromEntries(graph.layouts.map(p => [layoutKey(p), p])),
-        memberships: Object.fromEntries(graph.memberships.map(m => [membershipKey(m), m])),
+        layouts: Object.fromEntries(graph.layouts.map(p => [p.nodeId, p])),
+        project: graph.project,
         attachments: Object.fromEntries(graph.attachments.map(a => [attachmentKey(a), a])),
         revision: graph.revision, loaded: true, loading: false, pending: {}, inFlight: null,
         loadVersion: get().loadVersion + 1,

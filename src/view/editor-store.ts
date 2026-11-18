@@ -1,27 +1,16 @@
 import { createStore } from 'zustand/vanilla';
-import { membershipKey, type BaseEdge } from '../core/model.js';
-import { GraphError } from '../core/graph.js';
-import { layoutKey, type DocumentObjects, type NodeLayout } from '../runtime/document.js';
+import type { BaseEdge } from '../core/model.js';
+import { type NodeLayout } from '../runtime/document.js';
 import type { Change } from '../runtime/protocol.js';
 import type { SessionState, SessionStore } from '../runtime/client/session.js';
-import { scopeNodeIds } from './scope.js';
 
 interface ViewState {
   previewLayouts: Record<string, NodeLayout>;
-  contextNodeId: string | null;
-  navigation: Array<string | null>;
-  mainSelection: { nodes: string[]; edges: string[] } | null;
   selectedNodes: string[];
   selectedEdges: string[];
   createNode: (x: number, y: number) => string;
   createEdge: (source: string, target: string) => void;
   updateEdge: (id: string, update: Pick<BaseEdge, 'directed'>) => void;
-  addMembership: (containerId: string, memberId: string) => string | null;
-  removeMembership: (containerId: string, memberId: string) => void;
-  removeSelectedMemberships: () => void;
-  openScope: (id: string | null) => void;
-  closeScope: () => void;
-  goBack: () => void;
   select: (nodes: string[], edges: string[]) => void;
   deleteSelection: () => void;
   previewPositions: (layouts: NodeLayout[]) => void;
@@ -32,23 +21,8 @@ interface ViewState {
 
 export type EditorState = SessionState & ViewState;
 const emptyView = () => ({
-  contextNodeId: null, navigation: [], mainSelection: null, previewLayouts: {}, selectedNodes: [], selectedEdges: [],
+  previewLayouts: {}, selectedNodes: [], selectedEdges: [],
 });
-
-function validNavigation(state: ViewState, graph: DocumentObjects) {
-  const navigation = state.navigation.filter(id => id === null || graph.nodes[id]);
-  let contextNodeId = state.contextNodeId;
-  if (contextNodeId !== null && !graph.nodes[contextNodeId]) contextNodeId = navigation.pop() ?? null;
-  const visible = new Set(scopeNodeIds(graph, contextNodeId));
-  const closing = state.contextNodeId !== null && contextNodeId === null;
-  const selection = closing && state.mainSelection ? state.mainSelection : { nodes: state.selectedNodes, edges: state.selectedEdges };
-  return {
-    contextNodeId, navigation,
-    mainSelection: closing ? null : state.mainSelection,
-    selectedNodes: selection.nodes.filter(id => visible.has(id)),
-    selectedEdges: selection.edges.filter(id => graph.edges[id] && visible.has(graph.edges[id].source) && visible.has(graph.edges[id].target)),
-  };
-}
 
 export function createEditor(session: SessionStore) {
   const read = (): EditorState => ({ ...session.getState(), ...view.getState() });
@@ -56,9 +30,7 @@ export function createEditor(session: SessionStore) {
     ...emptyView(),
     createNode(x, y) {
       const id = session.getState().allocateId();
-      const { contextNodeId } = read();
-      const changes: Change[] = [{ type: 'node.put', node: { id } }, { type: 'layout.put', layout: { contextNodeId, nodeId: id, x, y } }];
-      if (contextNodeId !== null) changes.push({ type: 'membership.put', membership: { containerId: contextNodeId, memberId: id } });
+      const changes: Change[] = [{ type: 'node.put', node: { id } }, { type: 'layout.put', layout: { nodeId: id, x, y } }];
       session.getState().edit(changes);
       read().select([id], []);
       return id;
@@ -73,55 +45,6 @@ export function createEditor(session: SessionStore) {
       const edge = read().edges[id];
       if (!edge || edge.directed === update.directed) return;
       session.getState().edit([{ type: 'edge.put', edge: { ...edge, ...update } }]);
-    },
-    addMembership(containerId, memberId) {
-      const state = read();
-      if (!state.loaded || state.loading) return '数据尚未读取完成';
-      const membership = { containerId, memberId };
-      try {
-        if (!state.memberships[membershipKey(membership)]) session.getState().edit([{ type: 'membership.put', membership }]);
-      } catch (error) {
-        if (error instanceof GraphError) return error.message;
-        throw error;
-      }
-      return null;
-    },
-    removeMembership(containerId, memberId) {
-      const membership = { containerId, memberId };
-      if (read().memberships[membershipKey(membership)]) session.getState().edit([{ type: 'membership.delete', membership }]);
-    },
-    removeSelectedMemberships() {
-      const state = read();
-      if (state.contextNodeId === null) return;
-      const memberships = state.selectedNodes.map(memberId => ({ containerId: state.contextNodeId!, memberId }))
-        .filter(m => state.memberships[membershipKey(m)]);
-      session.getState().edit(memberships.map(membership => ({ type: 'membership.delete', membership })));
-    },
-    openScope(id) {
-      const state = read();
-      if (id === null) { state.closeScope(); return; }
-      if (!state.loaded || state.loading || id === state.contextNodeId || (id !== null && !state.nodes[id])) return;
-      set({
-        contextNodeId: id, navigation: [...state.navigation, state.contextNodeId],
-        mainSelection: state.contextNodeId === null ? { nodes: [...state.selectedNodes], edges: [...state.selectedEdges] } : state.mainSelection,
-        selectedNodes: [], selectedEdges: [], previewLayouts: {},
-      });
-    },
-    closeScope() {
-      const state = read();
-      if (state.contextNodeId === null) return;
-      const selection = state.mainSelection ?? { nodes: [], edges: [] };
-      set({
-        contextNodeId: null, navigation: [], mainSelection: null, previewLayouts: {},
-        selectedNodes: selection.nodes.filter(id => state.nodes[id]),
-        selectedEdges: selection.edges.filter(id => state.edges[id]),
-      });
-    },
-    goBack() {
-      const state = read();
-      if (state.loading || !state.navigation.length) return;
-      if (state.navigation.at(-1) === null) { state.closeScope(); return; }
-      set({ contextNodeId: state.navigation.at(-1) ?? null, navigation: state.navigation.slice(0, -1), selectedNodes: [], selectedEdges: [], previewLayouts: {} });
     },
     select(nodes, edges) {
       const state = read();
@@ -138,14 +61,14 @@ export function createEditor(session: SessionStore) {
     },
     previewPositions(updates) {
       const state = read(), previewLayouts = { ...state.previewLayouts };
-      for (const layout of updates) if (state.nodes[layout.nodeId] && layout.contextNodeId === state.contextNodeId) previewLayouts[layoutKey(layout)] = layout;
+      for (const layout of updates) if (state.nodes[layout.nodeId]) previewLayouts[layout.nodeId] = layout;
       set({ previewLayouts });
     },
     commitPositions(before, after) {
-      const previous = new Map(before.map(layout => [layoutKey(layout), layout]));
+      const previous = new Map(before.map(layout => [layout.nodeId, layout]));
       const changed = after.filter(layout => {
-        const old = previous.get(layoutKey(layout));
-        return layout.contextNodeId === read().contextNodeId && read().nodes[layout.nodeId] && old && (old.x !== layout.x || old.y !== layout.y);
+        const old = previous.get(layout.nodeId);
+        return read().nodes[layout.nodeId] && old && (old.x !== layout.x || old.y !== layout.y);
       });
       set({ previewLayouts: {} });
       session.getState().edit(changed.map(layout => ({ type: 'layout.put', layout })));
@@ -165,8 +88,9 @@ export function createEditor(session: SessionStore) {
   }));
   const unsubscribe = session.subscribe((state, previous) => {
     if (state.loadVersion !== previous.loadVersion) view.setState(emptyView());
-    else if (state.nodes !== previous.nodes || state.edges !== previous.edges || state.memberships !== previous.memberships) {
-      view.setState(validNavigation(view.getState(), state));
+    else if (state.nodes !== previous.nodes || state.edges !== previous.edges) {
+      const { selectedNodes, selectedEdges } = view.getState();
+      view.getState().select(selectedNodes.filter(id => state.nodes[id]), selectedEdges.filter(id => state.edges[id]));
     }
   });
   return { session, view, getState: read, dispose: unsubscribe };

@@ -1,14 +1,12 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import SQLite from 'better-sqlite3';
+import { nanoid } from 'nanoid';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { and, eq, isNull, lte } from 'drizzle-orm';
-import * as tables from './schema.js';
-import type { Membership } from '../core/model.js';
-import type { GraphData, NodeLayout } from '../runtime/document.js';
-import { validateMemberships } from '../core/graph.js';
-import type { Change } from '../runtime/protocol.js';
+import { and, eq, inArray, lte, ne } from 'drizzle-orm';
+import { baseProjects, baseNodes, baseEdges, viewNodeLayouts, baseBatchReceipts } from './schema.js';
+import type { GraphData } from '../runtime/document.js';
 import type { GraphStorage } from '../runtime/server/batches.js';
 import { WriteError } from '../runtime/errors.js';
 import type { StorageExtension } from './extensions.js';
@@ -17,102 +15,113 @@ export function openDatabase(filename: string, extensions: StorageExtension[] = 
   if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
   const sqlite = new SQLite(filename);
   const db = drizzle(sqlite);
-  const { baseNodes, baseEdges, baseMemberships, viewNodeLayouts, baseStoreState, baseBatchReceipts } = tables;
-  const membershipWhere = ({ containerId, memberId }: Membership) => and(eq(baseMemberships.containerId, containerId), eq(baseMemberships.memberId, memberId));
-  const layoutWhere = ({ contextNodeId, nodeId }: Pick<NodeLayout, 'contextNodeId' | 'nodeId'>) => and(
-    eq(viewNodeLayouts.nodeId, nodeId), contextNodeId === null ? isNull(viewNodeLayouts.contextNodeId) : eq(viewNodeLayouts.contextNodeId, contextNodeId),
-  );
-  function extension(namespace: string) {
-    const found = extensions.find(item => item.namespace === namespace);
-    if (!found) throw new WriteError('UNKNOWN_EXTENSION', '未启用对应业务模块');
-    return found;
-  }
   try {
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('journal_mode = WAL');
     sqlite.pragma('busy_timeout = 5000');
     migrate(db, { migrationsFolder: resolve('migrations'), migrationsTable: 'base_schema_migrations' });
-    db.insert(baseStoreState).values({ id: 1, revision: 0 }).onConflictDoNothing().run();
   } catch (error) {
     sqlite.close();
     throw error;
   }
 
-  function readGraph(): GraphData {
-    return db.transaction(tx => ({
-      attachments: extensions.flatMap(item => item.read(tx)),
-      revision: tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!.revision,
-      nodes: tx.select({ id: baseNodes.id }).from(baseNodes).orderBy(baseNodes.createdAt, baseNodes.id).all(),
-      edges: tx.select({
-        id: baseEdges.id, source: baseEdges.source, target: baseEdges.target,
-        directed: baseEdges.directed,
-      }).from(baseEdges).orderBy(baseEdges.createdAt, baseEdges.id).all(),
-      memberships: tx.select({ containerId: baseMemberships.containerId, memberId: baseMemberships.memberId })
-        .from(baseMemberships).orderBy(baseMemberships.containerId, baseMemberships.memberId).all(),
-      layouts: tx.select().from(viewNodeLayouts).orderBy(viewNodeLayouts.contextNodeId, viewNodeLayouts.nodeId).all(),
-    }));
+  const projectFields = { id: baseProjects.id, business: baseProjects.business, name: baseProjects.name };
+  function projectById(projectId: string) {
+    const row = db.select().from(baseProjects).where(eq(baseProjects.id, projectId)).get();
+    if (!row) throw new WriteError('PROJECT_NOT_FOUND', '项目不存在');
+    return row;
+  }
+  function readGraph(projectId: string): GraphData {
+    return db.transaction(tx => {
+      const { revision, ...project } = projectById(projectId);
+      const scope = eq(baseNodes.projectId, projectId);
+      return {
+        project, revision,
+        attachments: extensions.filter(ext => ext.namespace === project.business).flatMap(ext => ext.read(tx, projectId)),
+        nodes: tx.select({ id: baseNodes.id }).from(baseNodes).where(scope).orderBy(baseNodes.createdAt, baseNodes.id).all(),
+        edges: tx.select({ id: baseEdges.id, source: baseEdges.source, target: baseEdges.target, directed: baseEdges.directed })
+          .from(baseEdges).innerJoin(baseNodes, eq(baseNodes.id, baseEdges.source)).where(scope)
+          .orderBy(baseEdges.createdAt, baseEdges.id).all(),
+        layouts: tx.select({ nodeId: viewNodeLayouts.nodeId, x: viewNodeLayouts.x, y: viewNodeLayouts.y })
+          .from(viewNodeLayouts).innerJoin(baseNodes, eq(baseNodes.id, viewNodeLayouts.nodeId)).where(scope)
+          .orderBy(viewNodeLayouts.nodeId).all(),
+      };
+    });
   }
 
-  const transaction: GraphStorage['transaction'] = work => {
+  const transaction: GraphStorage['transaction'] = (projectId, work) => {
     try {
-      return db.transaction(tx => work({
-        getReceipt: batchId => tx.select().from(baseBatchReceipts).where(eq(baseBatchReceipts.batchId, batchId)).get(),
-        getRevision: () => tx.select().from(baseStoreState).where(eq(baseStoreState.id, 1)).get()!.revision,
-        applyChanges(changes: Change[]) {
-          for (const change of changes) {
-            if (change.type === 'attachment.delete') extension(change.attachment.namespace).delete(tx, change.attachment.nodeId);
-            if (change.type === 'edge.delete') tx.delete(baseEdges).where(eq(baseEdges.id, change.id)).run();
-            if (change.type === 'membership.delete') tx.delete(baseMemberships).where(membershipWhere(change.membership)).run();
-            if (change.type === 'layout.delete') tx.delete(viewNodeLayouts).where(layoutWhere(change.layout)).run();
-            if (change.type === 'node.delete') tx.delete(baseNodes).where(eq(baseNodes.id, change.id)).run();
-          }
-          const now = Date.now();
-          for (const change of changes) {
-            if (change.type !== 'node.put') continue;
-            tx.insert(baseNodes).values({ ...change.node, createdAt: now, updatedAt: now })
-              .onConflictDoNothing({ target: baseNodes.id }).run();
-          }
-          for (const change of changes) {
-            if (change.type === 'attachment.put') extension(change.attachment.namespace).put(tx, change.attachment);
-            if (change.type === 'membership.put') {
-              tx.insert(baseMemberships).values({ ...change.membership, createdAt: now }).onConflictDoNothing().run();
+      return db.transaction(tx => {
+        const project = projectById(projectId);
+        const extension = extensions.find(ext => ext.namespace === project.business);
+        return work({
+          getRevision: () => project.revision,
+          getReceipt: batchId => tx.select({ revision: baseBatchReceipts.revision }).from(baseBatchReceipts)
+            .where(and(eq(baseBatchReceipts.projectId, projectId), eq(baseBatchReceipts.batchId, batchId))).get(),
+          applyChanges(changes) {
+            // Check existing owners before deletes or upserts can change the graph.
+            const nodes = new Set<string>(), edges = new Set<string>();
+            for (const change of changes) {
+              switch (change.type) {
+                case 'node.put': nodes.add(change.node.id); break;
+                case 'node.delete': nodes.add(change.id); break;
+                case 'edge.put': edges.add(change.edge.id); nodes.add(change.edge.source); nodes.add(change.edge.target); break;
+                case 'edge.delete': edges.add(change.id); break;
+                case 'layout.put': case 'layout.delete': nodes.add(change.layout.nodeId); break;
+                case 'attachment.put': case 'attachment.delete':
+                  if (extension?.namespace !== change.attachment.namespace) throw new WriteError('UNKNOWN_EXTENSION', '业务数据与所选项目不符');
+                  nodes.add(change.attachment.nodeId);
+                  break;
+              }
             }
-            if (change.type === 'layout.put') {
-              const { x, y } = change.layout;
-              const where = layoutWhere(change.layout);
-              if (tx.select({ nodeId: viewNodeLayouts.nodeId }).from(viewNodeLayouts).where(where).get()) {
-                tx.update(viewNodeLayouts).set({ x, y }).where(where).run();
-              } else tx.insert(viewNodeLayouts).values(change.layout).run();
+            const outside = ne(baseNodes.projectId, projectId);
+            const foreignNode = tx.select({ id: baseNodes.id }).from(baseNodes).where(and(inArray(baseNodes.id, [...nodes]), outside)).get();
+            const foreignEdge = edges.size && tx.select({ id: baseEdges.id }).from(baseEdges).innerJoin(baseNodes, eq(baseNodes.id, baseEdges.source))
+              .where(and(inArray(baseEdges.id, [...edges]), outside)).get();
+            if (foreignNode || foreignEdge) throw new WriteError('PROJECT_BOUNDARY', '只能修改本项目的节点和连线');
+            for (const change of changes) {
+              if (change.type === 'attachment.delete') extension!.delete(tx, change.attachment.nodeId);
+              if (change.type === 'edge.delete') tx.delete(baseEdges).where(eq(baseEdges.id, change.id)).run();
+              if (change.type === 'layout.delete') tx.delete(viewNodeLayouts).where(eq(viewNodeLayouts.nodeId, change.layout.nodeId)).run();
+              if (change.type === 'node.delete') tx.delete(baseNodes).where(eq(baseNodes.id, change.id)).run();
             }
-            if (change.type === 'edge.put') {
-              const edge = change.edge;
-              tx.insert(baseEdges).values({ ...edge, createdAt: now, updatedAt: now })
-                .onConflictDoUpdate({ target: baseEdges.id, set: { ...edge, updatedAt: now } }).run();
+            const now = Date.now();
+            for (const change of changes) if (change.type === 'node.put') {
+              tx.insert(baseNodes).values({ id: change.node.id, projectId, createdAt: now, updatedAt: now }).onConflictDoNothing().run();
             }
-          }
-          if (changes.some(change => change.type === 'membership.put')) {
-            const memberships = tx.select({ containerId: baseMemberships.containerId, memberId: baseMemberships.memberId }).from(baseMemberships).all();
-            validateMemberships(memberships);
-          }
-        },
-        recordReceipt(batchId, revision) {
-          tx.update(baseStoreState).set({ revision }).where(eq(baseStoreState.id, 1)).run();
-          tx.insert(baseBatchReceipts).values({ batchId, revision }).run();
-          tx.delete(baseBatchReceipts).where(lte(baseBatchReceipts.revision, revision - 1000)).run();
-        },
-      }), { behavior: 'immediate' });
+            for (const change of changes) {
+              if (change.type === 'attachment.put') extension!.put(tx, change.attachment);
+              if (change.type === 'layout.put') tx.insert(viewNodeLayouts).values(change.layout)
+                .onConflictDoUpdate({ target: viewNodeLayouts.nodeId, set: { x: change.layout.x, y: change.layout.y } }).run();
+              if (change.type === 'edge.put') tx.insert(baseEdges).values({ ...change.edge, createdAt: now, updatedAt: now })
+                .onConflictDoUpdate({ target: baseEdges.id, set: { ...change.edge, updatedAt: now } }).run();
+            }
+          },
+          recordReceipt(batchId, revision) {
+            tx.update(baseProjects).set({ revision }).where(eq(baseProjects.id, projectId)).run();
+            tx.insert(baseBatchReceipts).values({ projectId, batchId, revision }).run();
+            tx.delete(baseBatchReceipts).where(and(eq(baseBatchReceipts.projectId, projectId), lte(baseBatchReceipts.revision, revision - 1000))).run();
+          },
+        });
+      }, { behavior: 'immediate' });
     } catch (error) {
-      // Drizzle may wrap a SQLite constraint failure in a query error.
       const cause = error instanceof Error && error.cause ? error.cause : error;
-      if (cause instanceof SQLite.SqliteError) {
-        if (cause.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') throw new WriteError('MISSING_NODE', '关联的节点或范围不存在');
-        if (cause.code === 'SQLITE_CONSTRAINT_CHECK' && cause.message.includes('base_memberships_not_self')) {
-          throw new WriteError('MEMBERSHIP_CYCLE', '节点不能收录自身或形成包含循环');
-        }
+      if (cause instanceof SQLite.SqliteError && cause.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+        throw new WriteError('MISSING_NODE', '关联的节点不存在');
       }
       throw error;
     }
   };
 
-  return { readGraph, transaction, close: () => sqlite.close() };
+  return {
+    listProjects: () => db.select(projectFields).from(baseProjects).orderBy(baseProjects.name, baseProjects.id).all(),
+    createProject(name, business) {
+      const project = { id: nanoid(12), name: name.trim(), business };
+      if (!project.name || project.name.length > 100) throw new WriteError('INVALID_PROJECT_NAME', '请输入 1–100 字的项目名称');
+      if (business !== 'basic' && !extensions.some(ext => ext.namespace === business)) throw new WriteError('UNKNOWN_EXTENSION', '未知项目业务');
+      db.insert(baseProjects).values(project).run();
+      return project;
+    },
+    readGraph, transaction, close: () => sqlite.close(),
+  };
 }
