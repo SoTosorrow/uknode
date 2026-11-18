@@ -1,0 +1,1 @@
+ALTER TABLE `ext_ai_video_nodes` ADD `image_options` text;

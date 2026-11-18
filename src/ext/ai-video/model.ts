@@ -2,8 +2,10 @@ import { attachmentKey, type NodeAttachment } from '../../runtime/attachments.js
 import { WriteError } from '../../runtime/errors.js';
 import type { DocumentObjects } from '../../runtime/document.js';
 
+import { validImageOptions, type ImageOptions } from '../../integrations/openai/image-options.js';
+
 export const namespace = 'ai-video';
-export type ImageData = { kind: 'image'; path: string | null; name: string; prompt: string };
+export type ImageData = { kind: 'image'; path: string | null; name: string; prompt: string; options?: ImageOptions };
 export type PromptData = { kind: 'prompt'; text: string };
 export type OutputData = { kind: 'output'; outputFilename: string; steps: number | null; inputOrder: string[] };
 export type VideoData = ImageData | PromptData | OutputData;
@@ -33,7 +35,8 @@ export function parseVideoData(value: Record<string, unknown>): VideoData {
   const { kind, name, path, outputFilename, steps, inputOrder } = value;
   const prompt = value.prompt === undefined ? '' : value.prompt;
   if (kind === 'image' && text(prompt, 20000) && text(name, 255) && (path === null || (typeof path === 'string' && assetPattern.test(path)))) {
-    return { kind, name, path, prompt };
+    if (value.options === undefined) return { kind, name, path, prompt };
+    if (validImageOptions(value.options)) return { kind, name, path, prompt, options: value.options };
   }
   if (kind === 'prompt' && text(value.text, 20000)) return { kind, text: value.text };
   if (kind === 'output' && text(outputFilename, 100)

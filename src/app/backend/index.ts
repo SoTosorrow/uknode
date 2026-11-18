@@ -13,7 +13,7 @@ const dataDir = resolve(process.env.UKNODE_DATA_DIR || 'data');
 const videoDirectory = resolve(dataDir, 'ext/ai-video');
 const database = openDatabase(resolve(dataDir, 'uknode.sqlite'), [videoStorage(videoDirectory)]);
 const app = createApp(createGraphService(database), { dev, logger: true });
-registerVideoRoutes(app, videoDirectory);
+registerVideoRoutes(app, videoDirectory, database.db);
 
 try {
   if (dev) {

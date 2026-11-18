@@ -1,10 +1,14 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+import sharp from 'sharp';
 import { nanoid } from 'nanoid';
 import type { FastifyInstance } from 'fastify';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { WriteError } from '../../runtime/errors.js';
 import { generateImage, ImageGenerationError } from '../../integrations/openai/images.js';
+import { imageSizeError, imageOptionsSchema, type ImageOptions } from '../../integrations/openai/image-options.js';
 import { assetPattern } from './model.js';
+import { findImageReferences } from './storage.js';
 
 export const maxImageBytes = 20 * 1024 * 1024;
 const imageMime = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' } as const;
@@ -22,9 +26,22 @@ async function storeImage(directory: string, bytes: Buffer) {
   return path;
 }
 
-export function registerVideoRoutes(app: FastifyInstance, directory: string) {
+export function registerVideoRoutes(app: FastifyInstance, directory: string, db: BetterSQLite3Database) {
   // Raw binary upload uses Axios and Fastify directly; no multipart dependency.
   app.register(async scope => {
+    scope.get('/api/ext/ai-video/library', async () => {
+      const assets = resolve(directory, 'assets');
+      try {
+        const entries = await readdir(assets, { withFileTypes: true });
+        return { directory: assets, files: entries.filter(entry => entry.isFile()).map(entry => entry.name).sort() };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { directory: assets, files: [] };
+        throw error;
+      }
+    });
+    scope.get<{ Querystring: { filename: string } }>('/api/ext/ai-video/library/references', {
+      schema: { querystring: { type: 'object', required: ['filename'], properties: { filename: { type: 'string', minLength: 1, pattern: '^[^/]+$' } } } },
+    }, async request => findImageReferences(db, request.query.filename));
     scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: maxImageBytes }, (_, body, done) => done(null, body));
     scope.post<{ Body: Buffer; Querystring: { name: string } }>('/api/ext/ai-video/images', {
       bodyLimit: maxImageBytes,
@@ -34,13 +51,18 @@ export function registerVideoRoutes(app: FastifyInstance, directory: string) {
       const path = await storeImage(directory, request.body);
       return reply.code(201).send({ path, name: request.query.name.split(/[\\/]/).at(-1)! });
     });
-    scope.post<{ Body: { prompt: string; reference?: string } }>('/api/ext/ai-video/images/generate', {
+    scope.post<{ Body: { prompt: string; reference?: string; options?: ImageOptions } }>('/api/ext/ai-video/images/generate', {
       schema: { body: { type: 'object', additionalProperties: false, required: ['prompt'], properties: {
         prompt: { type: 'string', minLength: 1, maxLength: 20000, pattern: '\\S' },
         reference: { type: 'string', pattern: assetPattern.source },
+        options: imageOptionsSchema,
       } } },
     }, async (request, reply) => {
-      const { prompt, reference } = request.body;
+      const { prompt, reference, options } = request.body;
+      if (options?.size !== undefined) {
+        const error = imageSizeError(options.size);
+        if (error) throw new WriteError('INVALID_IMAGE_SIZE', error);
+      }
       const controller = new AbortController();
       const onClose = () => controller.abort();
       reply.raw.once('close', onClose);
@@ -56,7 +78,7 @@ export function registerVideoRoutes(app: FastifyInstance, directory: string) {
             throw error;
           }
         }
-        const bytes = await generateImage({ prompt: prompt.trim(), reference: file, signal: controller.signal });
+        const bytes = await generateImage({ prompt: prompt.trim(), reference: file, options, signal: controller.signal });
         controller.signal.throwIfAborted();
         const path = await storeImage(directory, bytes);
         return reply.code(201).send({ path, name: basename(path) });
@@ -67,7 +89,7 @@ export function registerVideoRoutes(app: FastifyInstance, directory: string) {
         reply.raw.off('close', onClose);
       }
     });
-    scope.get<{ Params: { filename: string } }>('/api/ext/ai-video/assets/:filename', async (request, reply) => {
+    scope.get<{ Params: { filename: string }; Querystring: { thumbnail?: string } }>('/api/ext/ai-video/assets/:filename', async (request, reply) => {
       const path = `assets/${request.params.filename}`;
       const match = assetPattern.exec(path);
       const notFound = () => reply.code(404).send({ code: 'IMAGE_NOT_FOUND', message: '图片不存在' });
@@ -78,7 +100,18 @@ export function registerVideoRoutes(app: FastifyInstance, directory: string) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return notFound();
         throw error;
       }
-      return reply.header('X-Content-Type-Options', 'nosniff').type(imageMime[match[1] as keyof typeof imageMime]).send(bytes);
+      reply.header('X-Content-Type-Options', 'nosniff');
+      if (request.query.thumbnail === '1') {
+        try {
+          const thumbnail = await sharp(bytes).rotate()
+            .resize({ width: 512, height: 320, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 75 }).toBuffer();
+          return reply.type('image/webp').send(thumbnail);
+        } catch {
+          return reply.code(422).send({ code: 'INVALID_IMAGE', message: '无法读取参考图片' });
+        }
+      }
+      return reply.type(imageMime[match[1] as keyof typeof imageMime]).send(bytes);
     });
   });
 }

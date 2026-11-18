@@ -21,6 +21,16 @@ export function invertChanges(graph: DocumentObjects, changes: Change[]): Change
         } });
         break;
       }
+      case 'group.put': case 'group.delete': {
+        const id = change.type === 'group.put' ? change.group.id : change.id;
+        const group = graph.groups[id];
+        if (group) inverse.push({ type: 'group.put', group });
+        else if (change.type === 'group.put') inverse.push({ type: 'group.delete', id });
+        break;
+      }
+      case 'groupNode.set':
+        inverse.push({ ...change, groupId: graph.groupByNode[change.nodeId] ?? null });
+        break;
       case 'node.put':
         if (!graph.nodes[change.node.id]) inverse.push({ type: 'node.delete', id: change.node.id });
         break;

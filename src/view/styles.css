@@ -46,7 +46,8 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .react-flow__node-anchor .nowheel { overscroll-behavior: contain; }
 .react-flow__node-anchor:hover { border-color: #8796ad; }
 .react-flow__node-anchor.selected, .react-flow__node-anchor:focus-visible { background: #edf2ff; border-color: var(--accent); box-shadow: 0 0 0 1px #386bfa16; outline: none; }
-.react-flow__handle { width: 8px; height: 8px; border: 2px solid #fcfdff; background: #a0aabd; opacity: 0; transition: opacity 100ms ease; }
+.react-flow__handle { width: 16px; height: 16px; border: 2px solid #fcfdff; background: #a0aabd; opacity: 0; transition: opacity 100ms ease; }
+.react-flow__handle::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; }
 .react-flow__node:hover .react-flow__handle, .react-flow__node.selected .react-flow__handle, .react-flow__node:focus-within .react-flow__handle, .is-connecting .react-flow__handle { opacity: 1; }
 .react-flow__node.selected .react-flow__handle { background: var(--accent); }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 1.6; }
@@ -97,3 +98,13 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 }
 
 .wordmark small { font-weight: 400; font-size: 14px; letter-spacing: normal; }
+
+.group-dialog { width: min(320px, 90vw); padding: 20px; border: 1px solid var(--border); border-radius: 8px; color: inherit; }
+.group-dialog::backdrop { background: #17243b45; }
+.group-dialog form, .group-dialog label { display: grid; gap: 12px; }
+.group-dialog label { gap: 4px; font-size: 13px; }
+.group-dialog h2 { margin: 0; font-size: 16px; }
+.group-dialog input, .group-dialog select { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.group-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.group-dialog-actions button { padding: 5px 8px; border: 1px solid var(--border); }
+.node-group-name { margin: 0 0 6px; font-size: 12px; overflow-wrap: anywhere; }

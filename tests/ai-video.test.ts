@@ -1,11 +1,13 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import SQLite from 'better-sqlite3';
 import axios from 'axios';
+import sharp from 'sharp';
+import { imageSizes, imageSizeError } from '../src/integrations/openai/image-options.js';
 import { WriteError } from '../src/runtime/errors.js';
 import { openTestGraph } from './fixtures.js';
 import { createSessionStore } from '../src/runtime/client/session.js';
@@ -189,7 +191,7 @@ test('only connected images affect export readiness, independently of image orde
 test('binary image upload persists, serves safe previews, rejects invalid files and enforces the size limit', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'uknode-video-upload-'));
   const service = openTestGraph(join(dir, 'graph.sqlite'), videoStorage(dir));
-  const app = createApp(service.service); registerVideoRoutes(app, dir);
+  const app = createApp(service.service); registerVideoRoutes(app, dir, service.db);
   t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });
   const headers = { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000', 'content-type': 'application/octet-stream' };
   const response = await app.inject({ method: 'POST', url: '/api/ext/ai-video/images?name=character.png', headers, payload: png });
@@ -207,17 +209,94 @@ test('binary image upload persists, serves safe previews, rejects invalid files 
   assert.equal(changes.statusCode, 200); assert.deepEqual(service.readGraph().attachments[0].data, { kind: 'image', prompt: '', ...image });
 });
 
+test('shared asset library lists disk files and locates current image references across projects', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'uknode-library-'));
+  const graph = openTestGraph(':memory:', videoStorage(dir));
+  const app = createApp(graph.service);
+  registerVideoRoutes(app, dir, graph.db);
+  t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });
+  const listUrl = '/api/ext/ai-video/library';
+  const get = async (url: string) => {
+    const result = await app.inject({ url, headers: { host: 'localhost' } });
+    assert.equal(result.statusCode, 200);
+    return result.json();
+  };
+  const refs = (filename: string) => get(listUrl + '/references?' + new URLSearchParams({ filename }));
+  const directory = join(dir, 'assets');
+  assert.deepEqual(await get(listUrl), { directory, files: [] });
+  assert.equal(existsSync(directory), false);
+  mkdirSync(join(directory, 'nested'), { recursive: true });
+  writeFileSync(join(directory, 'nested', 'hidden.png'), png);
+  const filename = nanoid(12) + '.png', other = nanoid(12) + '.png', manual = '手动 #1 & 2%.txt';
+  for (const name of [filename, other, manual]) writeFileSync(join(directory, name), png);
+
+  const second = graph.service.createProject('Video B', 'ai-video');
+  const firstId = nanoid(12), otherId = nanoid(12), secondId = nanoid(12);
+  const imageChange = (nodeId: string, file: string): Change => ({
+    type: 'attachment.put', attachment: videoAttachment(nodeId, { kind: 'image', name: 'same.png', path: 'assets/' + file, prompt: '' }),
+  });
+  graph.applyBatch({ batchId: nanoid(12), expectedRevision: 0, changes: [
+    { type: 'node.put', node: { id: firstId } }, { type: 'node.put', node: { id: otherId } },
+    imageChange(firstId, filename), imageChange(otherId, other),
+  ] });
+  graph.service.applyBatch(second.id, { batchId: nanoid(12), expectedRevision: 0, changes: [
+    { type: 'node.put', node: { id: secondId } }, imageChange(secondId, filename),
+  ] });
+  const listing = { directory, files: [filename, other, manual].sort() };
+  assert.deepEqual(await get(listUrl), listing);
+  assert.deepEqual(await refs(manual), []);
+  const secondRef = { projectId: second.id, projectName: second.name, nodeId: secondId };
+  assert.deepEqual(await refs(filename), [
+    { projectId: graph.project.id, projectName: graph.project.name, nodeId: firstId }, secondRef,
+  ]);
+  graph.applyBatch({ batchId: nanoid(12), expectedRevision: 1, changes: [imageChange(firstId, other)] });
+  assert.deepEqual(await refs(filename), [secondRef]);
+  graph.service.applyBatch(second.id, { batchId: nanoid(12), expectedRevision: 1, changes: [{ type: 'node.delete', id: secondId }] });
+  assert.deepEqual(await refs(filename), []);
+  assert.deepEqual(await get(listUrl), listing);
+});
+
+test('canvas thumbnails are resized in memory and original files stay available for preview', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'uknode-thumb-'));
+  const graph = openTestGraph(':memory:');
+  const app = createApp(graph.service);
+  registerVideoRoutes(app, dir, graph.db);
+  t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });
+  const headers = { host: 'localhost' };
+  const original = await sharp({ create: { width: 1600, height: 900, channels: 3, background: '#3478ab' } }).png().toBuffer();
+  const uploaded = await app.inject({ method: 'POST', url: '/api/ext/ai-video/images?name=frame.png',
+    headers: { ...headers, 'content-type': 'application/octet-stream' }, payload: original });
+  const path = uploaded.json<{ path: string }>().path;
+  const url = '/api/ext/ai-video/' + path;
+  const thumb = await app.inject({ url: url + '?thumbnail=1', headers });
+  assert.equal(thumb.statusCode, 200);
+  assert.equal(thumb.headers['content-type'], 'image/webp');
+  const metadata = await sharp(thumb.rawPayload).metadata();
+  assert.deepEqual([metadata.width, metadata.height], [512, 288]);
+  assert.deepEqual((await app.inject({ url, headers })).rawPayload, original);
+  assert.deepEqual(readdirSync(dir, { recursive: true }).sort(), ['assets', path]);
+  rmSync(join(dir, path));
+  assert.equal((await app.inject({ url: url + '?thumbnail=1', headers })).statusCode, 404);
+});
+
+test('all aspect presets and custom image sizes obey the GPT Image 2.5 bounds', () => {
+  for (const [, size] of imageSizes) assert.equal(imageSizeError(size), undefined);
+  for (const size of ['1344x896', '1024x640', '3840x2160']) assert.equal(imageSizeError(size), undefined);
+  for (const size of ['1920x1080', '512x512', '3072x960', '3840x3840', '4096x2048', '0x640', 'abc']) assert.ok(imageSizeError(size));
+});
+
 test('image generation and edits share the server client and return normal video assets', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'uknode-image-generation-'));
-  const app = createApp(openTestGraph(':memory:').service);
-  registerVideoRoutes(app, dir);
+  const graph = openTestGraph(':memory:');
+  const app = createApp(graph.service);
+  registerVideoRoutes(app, dir, graph.db);
   t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });
   const key = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'test-key';
   t.after(() => { if (key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = key; });
   const upstream = t.mock.method(axios, 'post', async () => ({ data: { data: [{ b64_json: png.toString('base64') }] } }));
   const headers = { host: '127.0.0.1:3000' };
-  const generate = (payload: { prompt: string; reference?: string }) =>
+  const generate = (payload: { prompt: string; reference?: string; options?: Record<string, string> }) =>
     app.inject({ method: 'POST', url: '/api/ext/ai-video/images/generate', headers, payload });
   const response = await generate({ prompt: ' landscape ' });
   assert.equal(response.statusCode, 201);
@@ -226,14 +305,16 @@ test('image generation and edits share the server client and return normal video
   assert.equal(url, 'https://api.openai.com/v1/images/generations');
   assert(body && typeof body === 'object' && 'prompt' in body && 'model' in body);
   assert.equal(body.prompt, 'landscape');
+  assert.equal(body.model, 'gpt-image-2.5-flare');
   assert.equal(options?.headers?.Authorization, 'Bearer test-key');
-  const edit = await generate({ prompt: 'sunset', reference: asset.path });
+  const custom = { model: 'gpt-image-2.5-sunburst', quality: 'low', size: '1344x896' };
+  const edit = await generate({ prompt: 'sunset', reference: asset.path, options: custom });
   assert.equal(edit.statusCode, 201);
   const [editUrl, form] = upstream.mock.calls[1].arguments;
   assert.equal(editUrl, 'https://api.openai.com/v1/images/edits');
   assert(form instanceof FormData);
   assert.equal(form.get('prompt'), 'sunset');
-  assert.equal(form.get('model'), body.model);
+  for (const [key, value] of Object.entries(custom)) assert.equal(form.get(key), value);
   const file = form.get('image') as File;
   assert.equal(file.type, 'image/png');
   assert.deepEqual(Buffer.from(await file.arrayBuffer()), png);
@@ -243,7 +324,7 @@ test('image generation and edits share the server client and return normal video
     assert.deepEqual(image.rawPayload, png);
   }
   for (const payload of [{ prompt: ' ' }, { prompt: 'edit', reference: '../outside.png' },
-    { prompt: 'edit', reference: 'assets/missing00001.png' }]) {
+    { prompt: 'edit', reference: 'assets/missing00001.png' }, { prompt: 'invalid', options: { size: '10x10' } }]) {
     assert.equal((await generate(payload)).statusCode, 400);
   }
   assert.equal(upstream.mock.callCount(), 2);
@@ -257,7 +338,7 @@ test('image generation and edits share the server client and return normal video
 test('image prompts persist independently of video prompts, including while repairing a missing file', t => {
   const { dir, create, image, service, session, save } = setup(t);
   const id = create('image'), prompt = create('prompt'), output = create('output');
-  const data = { ...image('frame.png'), prompt: 'morning sky' };
+  const data = { ...image('frame.png'), prompt: 'morning sky', options: { quality: 'medium', size: '1344x896' } as const };
   updateVideoNode(session, id, data);
   updateVideoNode(session, prompt, { kind: 'prompt', text: 'camera pans' });
   connectVideo(session, id, output); connectVideo(session, prompt, output);

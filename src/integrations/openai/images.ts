@@ -1,18 +1,20 @@
 // Server only. Callers supply image bytes and decide where to store the result.
 import axios from 'axios';
+import { defaultImageModel, type ImageOptions } from './image-options.js';
 
 export interface GenerateImageRequest {
   prompt: string;
   reference?: File;
+  options?: ImageOptions;
   signal?: AbortSignal;
 }
 
 export class ImageGenerationError extends Error {}
 
-export async function generateImage({ prompt, reference, signal }: GenerateImageRequest): Promise<Buffer> {
+export async function generateImage({ prompt, reference, options = {}, signal }: GenerateImageRequest): Promise<Buffer> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new ImageGenerationError('请在服务端配置 OPENAI_API_KEY');
-  const fields = { model: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5', prompt, output_format: 'png' };
+  const fields = { ...options, model: options.model ?? defaultImageModel, prompt, output_format: 'png' };
   let body: typeof fields | FormData = fields;
   if (reference) {
     body = new FormData();

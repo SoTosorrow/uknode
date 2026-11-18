@@ -1,6 +1,7 @@
 import { type BaseNode, type BaseEdge, type Project, type GraphObjects } from '../core/model.js';
 import type { GraphChange } from '../core/changes.js';
 import { applyGraphChanges } from '../core/graph.js';
+import { applyGroupChanges, type NodeGroup, type GroupNode, type GroupState } from './node-groups.js';
 import { WriteError } from './errors.js';
 import type { Change } from './protocol.js';
 import { attachmentKey, type NodeAttachment } from './attachments.js';
@@ -15,8 +16,10 @@ export interface GraphData {
   nodes: BaseNode[];
   edges: BaseEdge[];
   layouts: NodeLayout[];
+  groups: NodeGroup[];
+  groupNodes: GroupNode[];
 }
-export interface DocumentObjects extends GraphObjects {
+export interface DocumentObjects extends GraphObjects, GroupState {
   layouts: Record<string, NodeLayout>;
   attachments: Record<string, NodeAttachment>;
 }
@@ -54,5 +57,7 @@ export function applyDocumentChanges(document: DocumentObjects, input: Change[])
       attachments[key] = change.attachment;
     }
   }
-  return { document: { ...result.graph, layouts, attachments }, changes: [...result.changes, ...layoutChanges.values(), ...attachmentChanges.values()] };
+  const grouping = applyGroupChanges(document, input, result.graph.nodes, deletedNodes);
+  return { document: { ...result.graph, layouts, attachments, groups: grouping.groups, groupByNode: grouping.groupByNode },
+    changes: [...result.changes, ...layoutChanges.values(), ...attachmentChanges.values(), ...grouping.changes] };
 }

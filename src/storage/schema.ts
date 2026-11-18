@@ -35,6 +35,17 @@ export const viewNodeLayouts = sqliteTable('view_node_layouts', {
   y: real('y').notNull(),
 });
 
+export const viewNodeGroups = sqliteTable('view_node_groups', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => baseProjects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+}, table => [index('view_node_groups_project_idx').on(table.projectId)]);
+
+export const viewGroupNodes = sqliteTable('view_group_nodes', {
+  nodeId: text('node_id').primaryKey().references(() => baseNodes.id, { onDelete: 'cascade' }),
+  groupId: text('group_id').notNull().references(() => viewNodeGroups.id, { onDelete: 'cascade' }),
+}, table => [index('view_group_nodes_group_idx').on(table.groupId)]);
+
 export const baseBatchReceipts = sqliteTable('base_batch_receipts', {
   projectId: text('project_id').notNull().references(() => baseProjects.id, { onDelete: 'cascade' }),
   batchId: text('batch_id').notNull(),

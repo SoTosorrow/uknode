@@ -11,6 +11,8 @@ import { createEditor, type Editor } from '../../view/editor-store.js';
 import { Autosave } from '../../runtime/client/autosave.js';
 
 const VideoEditor = lazy(async () => ({ default: (await import('../../ext/ai-video/VideoEditor.js')).VideoEditor }));
+const query = new URLSearchParams(location.search);
+const initialNodeId = query.get('node') ?? undefined;
 
 function ProjectPage({ editor, saver }: { editor: Editor; saver: Autosave }) {
   const project = useStore(editor.session, state => state.project);
@@ -19,12 +21,12 @@ function ProjectPage({ editor, saver }: { editor: Editor; saver: Autosave }) {
     {error ? <p role="alert">{error.message} <button onClick={() => void saver.load()}>重新读取</button></p> : <p role="status">读取中…</p>}
   </main>;
   return project.business === 'ai-video'
-    ? <Suspense fallback={<p role="status">读取中…</p>}><VideoEditor editor={editor} saver={saver} /></Suspense>
-    : <App editor={editor} saver={saver} />;
+    ? <Suspense fallback={<p role="status">读取中…</p>}><VideoEditor editor={editor} saver={saver} initialNodeId={initialNodeId} /></Suspense>
+    : <App editor={editor} saver={saver} initialNodeId={initialNodeId} />;
 }
 
 const root = createRoot(document.getElementById('root')!);
-const projectId = new URLSearchParams(location.search).get('project');
+const projectId = query.get('project');
 if (projectId) {
   const session = createSessionStore();
   const editor = createEditor(session);

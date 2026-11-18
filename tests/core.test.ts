@@ -38,7 +38,7 @@ for (const phase of ['unsent', 'in-flight', 'saved'] as const) {
 
 test('layout edits preserve graph references and do not change canvas selection', t => {
   const session = createSessionStore();
-  session.getState().hydrate({ revision: 0, nodes: [{ id: 'anchorNode01' }], edges: [], project: testProject, attachments: [], layouts: [] });
+  session.getState().hydrate({ revision: 0, nodes: [{ id: 'anchorNode01' }], edges: [], project: testProject, attachments: [], groups: [], groupNodes: [], layouts: [] });
   const editor = createEditor(session); t.after(editor.dispose);
   const before = session.getState();
   let viewUpdates = 0;

@@ -1,17 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { useEditorState } from './use-editor.js';
 import type { NodeLayout } from '../runtime/document.js';
 import type { Editor as EditorController } from './editor-store.js';
 import type { Autosave } from '../runtime/client/autosave.js';
 import { CanvasControls, CanvasMenu, Icon, type CanvasMenuState } from './editor-overlays.js';
+import type { GroupDialogMode } from './group-dialog.js';
+import { groupAssignments } from '../runtime/node-groups.js';
 import { GraphCanvas, type CanvasSelection } from './graph-canvas.js';
 import { isCanvasControl, type NodeRenderer } from './node-shell.js';
 import { SelectionDetails } from './selection-details.js';
 
+const GroupDialog = lazy(() => import('./group-dialog.js'));
+
 export interface DefaultEditorProps {
   editor: EditorController;
   saver: Autosave;
+  initialNodeId?: string;
   namespace?: string;
   activity?: string;
   renderNode?: NodeRenderer;
@@ -21,12 +26,19 @@ export interface DefaultEditorProps {
   onConnect?: (source: string, target: string) => string | null;
 }
 
-export function DefaultEditor({ editor, saver, namespace, activity, renderNode, renderDetails, onOpenNode, nodeActions, onConnect }: DefaultEditorProps) {
+export function DefaultEditor({ editor, saver, initialNodeId, namespace, activity, renderNode, renderDetails, onOpenNode, nodeActions, onConnect }: DefaultEditorProps) {
   const state = useEditorState(editor);
   const flow = useReactFlow();
   const canvas = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [groupDialog, setGroupDialog] = useState<{ mode: GroupDialogMode; nodeIds: string[] } | null>(null);
+  function openGroupDialog(mode: GroupDialogMode) {
+    if (!menu) return;
+    setGroupDialog({ mode, nodeIds: menu.nodeIds });
+    setMenu(null);
+  }
+  const [interactionMessage, setInteractionMessage] = useState<string | null>(() =>
+    initialNodeId && !Object.hasOwn(state.nodes, initialNodeId) ? '要定位的节点已不存在' : null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const dismissMenu = useCallback(() => { setMenu(null); canvas.current?.focus({ preventScroll: true }); }, []);
   const nodeIds = useMemo(() => Object.keys(state.nodes), [state.nodes]);
@@ -73,7 +85,7 @@ export function DefaultEditor({ editor, saver, namespace, activity, renderNode, 
   }
   return <section className="editor-shell" data-testid="main-editor" aria-label="项目画布">
     <div className="canvas" ref={canvas} tabIndex={-1} aria-label="节点画布">
-      <GraphCanvas id="main-flow" viewKey={state.project!.id}
+      <GraphCanvas id="main-flow" viewKey={state.project!.id} initialNodeId={initialNodeId}
         nodeIds={nodeIds} edges={edges} positions={displayedLayouts}
         selection={{ nodes: state.selectedNodes, edges: state.selectedEdges }} enabled={canEdit} renderNode={renderNode}
         onSelect={update => {
@@ -82,7 +94,7 @@ export function DefaultEditor({ editor, saver, namespace, activity, renderNode, 
           current.select(next.nodes, next.edges);
         }}
         onConnect={connection => {
-          if (onConnect) setConnectionError(onConnect(connection.source, connection.target));
+          if (onConnect) setInteractionMessage(onConnect(connection.source, connection.target));
           else state.createEdge(connection.source, connection.target);
         }}
         onPreviewPositions={state.previewPositions}
@@ -121,8 +133,20 @@ export function DefaultEditor({ editor, saver, namespace, activity, renderNode, 
     } }))} onDelete={() => {
       if (canEdit) { state.select(menu.nodeIds, []); deleteSelected(); }
       dismissMenu();
-    }} />}
-    {(connectionError || state.editMessage) && <div className="interaction-message surface" role="alert">{state.editMessage || connectionError}<button onClick={() => { setConnectionError(null); editor.session.setState({ editMessage: null }); }}>关闭</button></div>}
+    }}>
+      <button role="menuitem" disabled={!canEdit} onClick={() => openGroupDialog('create')}>新建组</button>
+      {Object.keys(state.groups).length > 0 && <>
+        {menu.nodeIds.length > 0 && <button role="menuitem" onClick={() => openGroupDialog('move')}>移入组</button>}
+        {menu.nodeIds.some(id => state.groupByNode[id]) && <button role="menuitem" onClick={() => {
+          editor.session.getState().edit(groupAssignments(editor.session.getState(), menu.nodeIds, null)); dismissMenu();
+        }}>移出组</button>}
+        <button role="menuitem" onClick={() => openGroupDialog('manage')}>管理节点组</button>
+      </>}
+    </CanvasMenu>}
+    {groupDialog && <Suspense fallback={null}><GroupDialog {...groupDialog} session={editor.session} onClose={() => {
+      setGroupDialog(null); canvas.current?.focus({ preventScroll: true });
+    }} /></Suspense>}
+    {(interactionMessage || state.editMessage) && <div className="interaction-message surface" role="alert">{state.editMessage || interactionMessage}<button onClick={() => { setInteractionMessage(null); editor.session.setState({ editMessage: null }); }}>关闭</button></div>}
     {state.error && <div className="save-error surface" role="alert">
       <span>{state.error.message} </span>
       {state.error.retryable && <button onClick={() => void saver.retry()}>重试</button>}

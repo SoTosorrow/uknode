@@ -10,13 +10,13 @@ import { useVideoImages, VideoImages } from './images.js';
 import { VideoInputs } from './input-view.js';
 import './styles.css';
 
-type Props = { editor: Editor; saver: Autosave };
+type Props = { editor: Editor; saver: Autosave; initialNodeId?: string };
 
 export function VideoEditor(props: Props) {
   return <VideoImages><VideoInputs session={props.editor.session}><VideoCanvas {...props} /></VideoInputs></VideoImages>;
 }
 
-function VideoCanvas({ editor, saver }: Props) {
+function VideoCanvas({ editor, saver, initialNodeId }: Props) {
   const { operations } = useVideoImages();
   const renderNode = useCallback(({ id }: { id: string }) => <VideoNode nodeId={id} session={editor.session} />, [editor]);
   const renderDetails = useCallback(({ nodes, edges }: { nodes: string[]; edges: string[] }) =>
@@ -29,7 +29,7 @@ function VideoCanvas({ editor, saver }: Props) {
     },
   })), [editor]);
   return <ReactFlowProvider>
-    <DefaultEditor editor={editor} saver={saver} namespace={namespace} activity={operations.size ? '图片处理中' : undefined}
+    <DefaultEditor editor={editor} saver={saver} initialNodeId={initialNodeId} namespace={namespace} activity={operations.size ? '图片处理中' : undefined}
       renderNode={renderNode} renderDetails={renderDetails} nodeActions={nodeActions}
       onConnect={(source, target) => connectVideo(editor.session, source, target)} />
   </ReactFlowProvider>;

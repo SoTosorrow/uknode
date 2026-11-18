@@ -52,10 +52,11 @@ export interface CanvasMenuState {
   nodeIds: string[];
 }
 
-export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDelete, onClose }: {
+export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, children, onDelete, onClose }: {
   menu: CanvasMenuState;
   disabled: boolean;
   onCreate?: () => void;
+  children?: ReactNode;
   additionalCreates?: Array<{ label: string; run: () => void }>;
   onDelete: () => void;
   onClose: () => void;
@@ -97,6 +98,7 @@ export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDele
   }}>
     {onCreate && <button role="menuitem" disabled={disabled} onClick={onCreate}><Icon name="plus" />新增节点</button>}
     {additionalCreates?.map(action => <button key={action.label} role="menuitem" disabled={disabled} onClick={action.run}><Icon name="plus" />{action.label}</button>)}
+    {children}
     <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDelete}><Icon name="trash" />删除节点{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>
   </div>;
 }

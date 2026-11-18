@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  ReactFlow, Background, BaseEdge, MarkerType, SelectionMode, useReactFlow,
-  type Node, type Edge, type EdgeProps, type NodeChange, type EdgeChange, type XYPosition, type Connection,
+  ReactFlow, Background, BaseEdge, MarkerType, Position, SelectionMode, useReactFlow, useStore,
+  type Node, type Edge, type EdgeProps, type ConnectionLineComponentProps, type NodeChange, type EdgeChange, type XYPosition, type Connection,
 } from '@xyflow/react';
 import type { BaseEdge as GraphEdge } from '../core/model.js';
 import { NodeShell, isCanvasControl, type CanvasNode, type NodeRenderer } from './node-shell.js';
@@ -11,6 +11,7 @@ export interface CanvasPosition extends XYPosition { nodeId: string }
 export interface GraphCanvasProps {
   id: string;
   viewKey: string;
+  initialNodeId?: string;
   nodeIds: string[];
   edges: GraphEdge[];
   positions: Record<string, XYPosition>;
@@ -28,18 +29,31 @@ export interface GraphCanvasProps {
 
 type Relation = Edge<{ offset: number; selfIndex: number }>;
 
+// Two cubic segments keep horizontal tangents at the side ports and a visible bend
+// even when both ports have the same height. Lane offsets separate parallel edges.
+function relationPath(sx: number, sy: number, tx: number, ty: number, lane = 0) {
+  const dx = tx - sx, dy = ty - sy;
+  const length = Math.hypot(dx, dy) || 1;
+  const reach = Math.max(24, Math.min(96, length * 0.29));
+  const lift = dx < 0 ? Math.max(70, Math.min(200, -dx * 0.45)) : Math.min(32, length * 0.12);
+  const mx = (sx + tx) / 2 - dy / length * lane;
+  const my = (sy + ty) / 2 + dx / length * lane - lift * Math.abs(dx) / length;
+  return `M ${sx} ${sy} C ${sx + reach} ${sy}, ${mx - dx * 0.16} ${my - dy * 0.16}, ${mx} ${my} S ${tx - reach} ${ty}, ${tx} ${ty}`;
+}
+
 function RelationEdge(props: EdgeProps<Relation>) {
   const { sourceX: sx, sourceY: sy, targetX: tx, targetY: ty } = props;
-  const length = Math.hypot(tx - sx, ty - sy) || 1;
   const offset = (props.data?.offset || 0) * (props.source < props.target ? 1 : -1);
-  const cx = (sx + tx) / 2 - (ty - sy) / length * offset;
-  const cy = (sy + ty) / 2 + (tx - sx) / length * offset;
   const loop = 80 + (props.data?.selfIndex || 0) * 30;
-  const self = props.source === props.target;
-  const path = self
+  const path = props.source === props.target
     ? `M ${sx} ${sy} C ${sx + loop} ${sy - loop * 2}, ${tx - loop} ${ty - loop * 2}, ${tx} ${ty}`
-    : `M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`;
+    : relationPath(sx, sy, tx, ty, offset);
   return <BaseEdge id={props.id} path={path} markerEnd={props.markerEnd} style={props.style} />;
+}
+
+function ConnectionPreview({ fromX, fromY, toX, toY, fromPosition }: ConnectionLineComponentProps) {
+  const path = fromPosition === Position.Left ? relationPath(toX, toY, fromX, fromY) : relationPath(fromX, fromY, toX, toY);
+  return <path className="react-flow__connection-path" fill="none" d={path} />;
 }
 
 const nodeTypes = { anchor: NodeShell };
@@ -53,8 +67,10 @@ function selectChanged(ids: string[], changes: Array<{ id: string; selected: boo
 
 // The caller supplies the project graph and handles edits and navigation.
 export function GraphCanvas(props: GraphCanvasProps) {
-  const { nodeIds, positions, selection, enabled, viewKey, renderNode } = props;
+  const { nodeIds, positions, selection, enabled, viewKey, initialNodeId, onSelect, renderNode } = props;
   const flow = useReactFlow();
+  const targetId = initialNodeId && Object.hasOwn(positions, initialNodeId) ? initialNodeId : undefined;
+  const targetMeasured = useStore(state => !!(targetId && state.nodeLookup.get(targetId)?.measured.width));
   const dragBefore = useRef<CanvasPosition[]>([]);
   const fittedView = useRef<string | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
@@ -62,36 +78,46 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const nodeTemplates = useMemo(() => nodeIds.map(id => ({
     id, type: 'anchor' as const, data: { renderContent: renderNode },
   })), [nodeIds, renderNode]);
+  const selectedNodes = useMemo(() => new Set(selection.nodes), [selection.nodes]);
   const nodes = useMemo<CanvasNode[]>(() => nodeTemplates.map(node => ({
-    ...node, position: positions[node.id], selected: selection.nodes.includes(node.id),
-  })), [nodeTemplates, positions, selection.nodes]);
+    ...node, position: positions[node.id], selected: selectedNodes.has(node.id),
+  })), [nodeTemplates, positions, selectedNodes]);
+  const lanes = useMemo(() => {
+    const counts = new Map<string, number>();
+    const indexed = props.edges.map(edge => {
+      const key = edge.source < edge.target ? edge.source + ':' + edge.target : edge.target + ':' + edge.source;
+      const index = counts.get(key) ?? 0;
+      counts.set(key, index + 1);
+      return { edge, key, index };
+    });
+    return indexed.map(({ edge, key, index }) => ({ edge, index, count: counts.get(key)! }));
+  }, [props.edges]);
   const edges = useMemo<Relation[]>(() => {
-    const groups = new Map<string, string[]>();
-    for (const edge of props.edges) {
-      const key = [edge.source, edge.target].sort().join(':');
-      groups.set(key, [...(groups.get(key) || []), edge.id]);
-    }
-    return props.edges.map(edge => {
-      const group = groups.get([edge.source, edge.target].sort().join(':'))!;
-      const index = group.indexOf(edge.id);
-      const selected = selection.edges.includes(edge.id);
+    const selectedEdges = new Set(selection.edges);
+    return lanes.map(({ edge, index, count }) => {
+      const selected = selectedEdges.has(edge.id);
       return {
         ...edge, type: 'relation', selected,
         markerEnd: edge.directed ? { type: MarkerType.ArrowClosed, color: selected ? '#386bfa' : '#a0a8b5' } : undefined,
-        data: { offset: (index - (group.length - 1) / 2) * 50, selfIndex: index },
+        data: { offset: (index - (count - 1) / 2) * 50, selfIndex: index },
       };
     });
-  }, [props.edges, selection.edges]);
+  }, [lanes, selection.edges]);
 
   useEffect(() => {
     if (!enabled || fittedView.current === viewKey) return;
     // Empty canvases must keep the first node at the requested position.
     if (!nodeIds.length) { fittedView.current = viewKey; return; }
-    if (flow.viewportInitialized) {
-      fittedView.current = viewKey;
+    if (!flow.viewportInitialized || (targetId && !targetMeasured)) return;
+    fittedView.current = viewKey;
+    if (targetId) {
+      const bounds = flow.getNodesBounds([targetId]);
+      void flow.setCenter(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { zoom: 1 });
+      onSelect(() => ({ nodes: [targetId], edges: [] }));
+    } else {
       void flow.fitView({ padding: 0.25, maxZoom: 1 });
     }
-  }, [enabled, viewKey, nodeIds.length, flow]);
+  }, [enabled, viewKey, nodeIds.length, flow, targetId, targetMeasured, onSelect]);
   useEffect(() => { dragBefore.current = []; setConnecting(false); }, [viewKey, enabled]);
 
   function onNodesChange(changes: NodeChange[]) {
@@ -128,7 +154,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   }
 
   return <ReactFlow id={props.id} className={connecting ? 'is-connecting' : undefined} nodes={nodes} edges={edges}
-    nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+    nodeTypes={nodeTypes} edgeTypes={edgeTypes} connectionLineComponent={ConnectionPreview} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
     onConnect={connection => { if (enabled) props.onConnect(connection); }}
     onConnectStart={() => { setConnecting(true); props.onInteractionStart?.(); }} onConnectEnd={() => setConnecting(false)}
     nodesDraggable={enabled} nodesConnectable={enabled} elementsSelectable={enabled}

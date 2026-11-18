@@ -1,8 +1,9 @@
 import { graphChangeKey, type GraphChange } from '../core/changes.js';
+import type { GroupChange } from './node-groups.js';
 import { type NodeLayout } from './document.js';
 import { attachmentKey, type NodeAttachment, type AttachmentRef } from './attachments.js';
 
-export type Change = GraphChange
+export type Change = GraphChange | GroupChange
   | { type: 'attachment.put'; attachment: NodeAttachment }
   | { type: 'attachment.delete'; attachment: AttachmentRef }
   | { type: 'layout.put'; layout: NodeLayout }
@@ -18,6 +19,9 @@ export interface Receipt { batchId: string; revision: number }
 
 export function changeKey(change: Change): string {
   switch (change.type) {
+    case 'group.put': return `group:${change.group.id}`;
+    case 'group.delete': return `group:${change.id}`;
+    case 'groupNode.set': return `groupNode:${change.nodeId}`;
     case 'attachment.put': case 'attachment.delete': return `attachment:${attachmentKey(change.attachment)}`;
     case 'layout.put': case 'layout.delete': return `layout:${change.layout.nodeId}`;
     default: return graphChangeKey(change);
@@ -37,6 +41,9 @@ export const batchSchema = object({
   changes: {
     type: 'array', minItems: 1, maxItems: 10_000,
     items: { oneOf: [
+      object({ type: { const: 'group.put' }, group: object({ id, name: { type: 'string', minLength: 1, maxLength: 100, pattern: '\\S' } }) }),
+      object({ type: { const: 'group.delete' }, id }),
+      object({ type: { const: 'groupNode.set' }, nodeId: id, groupId: { anyOf: [id, { type: 'null' }] } }),
       object({ type: { const: 'attachment.put' }, attachment: object({ namespace, nodeId: id, data: { type: 'object' } }) }),
       object({ type: { const: 'attachment.delete' }, attachment: object({ namespace, nodeId: id }) }),
       object({ type: { const: 'node.put' }, node: object({ id }) }),

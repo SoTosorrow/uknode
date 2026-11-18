@@ -9,10 +9,11 @@ export const createTestEditor = () => createEditor(createSessionStore());
 export const testProject = { id: 'localProject', business: 'basic', name: 'Test' };
 
 export function openTestGraph(filename: string, extension?: StorageExtension) {
-  const service = createGraphService(openDatabase(filename, extension ? [extension] : []));
+  const database = openDatabase(filename, extension ? [extension] : []);
+  const service = createGraphService(database);
   const project = service.listProjects()[0] ?? service.createProject('Test', extension?.namespace ?? 'basic');
   return {
-    service, project, close: service.close,
+    db: database.db, service, project, close: service.close,
     readGraph: () => service.readGraph(project.id),
     applyBatch: (batch: ChangeBatch) => service.applyBatch(project.id, batch),
   };

@@ -37,7 +37,7 @@ function queueEdit(state: SessionState, changes: Change[]) {
 
 export function createSessionStore() {
   return createStore<SessionState>((set, get) => ({
-    nodes: {}, edges: {}, layouts: {}, project: null, attachments: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
+    nodes: {}, edges: {}, groups: {}, groupByNode: {}, layouts: {}, project: null, attachments: {}, loaded: false, loading: true, loadVersion: 0, revision: 0,
     pending: {}, inFlight: null, error: null, editMessage: null, past: [], future: [],
     allocateId: () => nanoid(12),
     hydrate(graph) {
@@ -45,6 +45,8 @@ export function createSessionStore() {
         nodes: Object.fromEntries(graph.nodes.map(n => [n.id, n])),
         edges: Object.fromEntries(graph.edges.map(e => [e.id, e])),
         layouts: Object.fromEntries(graph.layouts.map(p => [p.nodeId, p])),
+        groups: Object.fromEntries(graph.groups.map(group => [group.id, group])),
+        groupByNode: Object.fromEntries(graph.groupNodes.map(member => [member.nodeId, member.groupId])),
         project: graph.project,
         attachments: Object.fromEntries(graph.attachments.map(a => [attachmentKey(a), a])),
         revision: graph.revision, loaded: true, loading: false, pending: {}, inFlight: null,

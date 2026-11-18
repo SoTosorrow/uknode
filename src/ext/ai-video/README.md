@@ -14,6 +14,7 @@
 | `config.ts` | 根据配置字段和已解析的输入生成 JSON |
 | `VideoEditor.tsx` | 独立视频画布入口，组合通用编辑器与视频节点、菜单和连线规则 |
 | `images.tsx` | 记录本画布的图片上传、生成和读取状态，按节点及当前路径判断可用性 |
+| `AssetLibrary.tsx` | 首页视频素材库，按文件名查询引用并定位到项目画布 |
 | `ImageEditor.tsx` | 参考图预览、上传、生图提示词与生成计时 |
 | `components.tsx` / `styles.css` | 节点表单、排序、JSON 导出与样式 |
 
@@ -25,6 +26,6 @@
 
 底层新增的 `attachment.put/delete` 是通用的节点数据挂载能力，使用 `namespace + nodeId` 定位；业务字段通过本目录解释。业务变更与节点创建、连线、布局一起进入同一会话、批次和 SQLite 事务；删除节点通过外键清理业务行，撤销通过会话快照恢复附加数据。
 
-上传使用现有 Axios/Fastify，无额外依赖。浏览器检查图片可解码，服务端检查类型签名和大小。文件使用随机名存入 `data/ext/ai-video/assets/`；复制/下载的 JSON 使用相对于 `data/ext/ai-video/` 的路径，例如 `assets/AbCdEf123456.png`。原文件名只用于展示，因此同名上传不会覆盖。
+上传使用 Axios/Fastify。图片节点通过服务端 sharp 获取按比例缩小的 WebP，缩略图仅在内存中生成。预览原图时再读取原文件。浏览器检查图片可解码，服务端检查类型签名和大小。文件使用随机名存入 `data/ext/ai-video/assets/`；复制/下载的 JSON 使用相对于 `data/ext/ai-video/` 的路径，例如 `assets/AbCdEf123456.png`。原文件名只用于展示，因此同名上传不会覆盖。
 
-生成和上传的图片在替换或删除节点后保留，以便会话撤销恢复。服务端复用 `src/integrations/openai/images.ts` 的 `generateImage({ prompt, reference?, signal? })`。图片节点的「参考当前图片」开关在打开项目时默认关闭，开启后把当前图片作为文件传入。生图提示词存放在本节点业务行的 `prompt` 列，只有提示词节点的文本会进入视频配置。运行你自己的视频函数时，输入根目录需指向 `data/ext/ai-video/`。
+生成和上传的图片在替换或删除节点后保留，以便会话撤销恢复。服务端复用 `src/integrations/openai/images.ts` 的 `generateImage({ prompt, reference?, options?, signal? })`。图片节点的「参考当前图片」开关在打开项目时默认关闭，开启后把当前图片作为文件传入。「更多选项」收起画幅、质量及模型，选项保存到图片业务行的 `image_options` 列。默认模型为 GPT Image 2.5 Flare，可选 Sunburst。生图提示词存放在本节点业务行的 `prompt` 列，只有提示词节点的文本会进入视频配置。运行你自己的视频函数时，输入根目录需指向 `data/ext/ai-video/`。
