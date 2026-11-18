@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import SQLite from 'better-sqlite3';
+import { WriteError } from '../src/runtime/errors.js';
 import { openDatabase } from '../src/storage/sqlite.js';
 import { createGraphService } from '../src/runtime/server/batches.js';
 import { createSessionStore } from '../src/runtime/client/session.js';
@@ -22,7 +23,7 @@ function setup(t: TestContext) {
   const service = createGraphService(openDatabase(filename, [videoStorage(dir)]));
   const session = createSessionStore(); session.getState().hydrate(service.readGraph());
   t.after(() => { service.close(); rmSync(dir, { recursive: true, force: true }); });
-  const create = (kind: 'image' | 'prompt' | 'output') => createVideoNode(session, kind, { x: 1, y: 2 }, null)!;
+  const create = (kind: 'image' | 'prompt' | 'output') => createVideoNode(session, kind, { x: 1, y: 2 })!;
   const save = () => session.getState().acknowledge(service.applyBatch(session.getState().beginBatch()!));
   const image = (name: string) => {
     const path = `assets/${nanoid(12)}.png`; mkdirSync(join(dir, 'assets'), { recursive: true }); writeFileSync(join(dir, path), png);
@@ -56,6 +57,13 @@ test('video inputs are many-to-one, ordered, reusable, persisted and exported as
   session.getState().edit([{ type: 'edge.put', edge: { id: nanoid(12), source: a, target: output, directed: true } }]);
   assert.equal(inputsFor(session.getState(), output).length, 4);
   assert.deepEqual(buildConfig(session.getState(), output).config, expected);
+  // Legacy links from the ordinary canvas are outside the video view.
+  const plainId = nanoid(12);
+  session.getState().edit([
+    { type: 'node.put', node: { id: plainId } },
+    { type: 'edge.put', edge: { id: nanoid(12), source: plainId, target: output, directed: false } },
+  ]);
+  assert.deepEqual(buildConfig(session.getState(), output), { config: expected, errors: [] });
 });
 
 for (const phase of ['unsent', 'in-flight', 'saved'] as const) test(`video node deletion and undo preserve attachments and images (${phase})`, t => {
@@ -87,8 +95,12 @@ test('business validation and missing references roll back the entire graph tran
     assert.throws(() => send([node, change]));
     assert.equal(service.readGraph().revision, 0); assert.deepEqual(service.readGraph().nodes, []);
   }
-  assert.throws(() => session.getState().edit([bad.at(-1)!]), /节点不存在/);
-  send([node, { type: 'attachment.put', attachment: videoAttachment(id, { kind: 'prompt', text: 'kept' }) }]);
+  assert.throws(() => session.getState().edit([bad.at(-1)!]), e => e instanceof WriteError && e.code === 'MISSING_NODE');
+  updateVideoNode(session, id, { kind: 'prompt', text: 'removed' });
+  assert.match(session.getState().editMessage!, /节点已不存在/);
+  assert.deepEqual(session.getState().pending, {});
+  send([node, { type: 'attachment.put', attachment: { namespace: 'ai-video', nodeId: id, data: { kind: 'prompt', text: 'kept', extra: true } } }]);
+  assert.deepEqual(service.readGraph().attachments, [videoAttachment(id, { kind: 'prompt', text: 'kept' })]);
   service.applyBatch({ batchId: nanoid(12), expectedRevision: 1, changes: [{ type: 'node.delete', id }] });
   assert.deepEqual(service.readGraph().attachments, []);
   const raw = new SQLite(filename, { readonly: true });

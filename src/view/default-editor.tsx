@@ -14,6 +14,8 @@ export interface DefaultEditorProps {
   editor: EditorController;
   saver: Autosave;
   contextNodeId: string | null;
+  namespace?: string;
+  activity?: string;
   renderNode?: NodeRenderer;
   renderDetails?: (selection: CanvasSelection) => ReactNode;
   onOpenNode?: (nodeId: string) => void;
@@ -21,8 +23,8 @@ export interface DefaultEditorProps {
   onConnect?: (source: string, target: string) => string | null;
 }
 
-export function DefaultEditor({ editor, saver, contextNodeId, renderNode, renderDetails, onOpenNode, nodeActions, onConnect }: DefaultEditorProps) {
-  const state = useEditorState(editor, contextNodeId);
+export function DefaultEditor({ editor, saver, contextNodeId, namespace, activity, renderNode, renderDetails, onOpenNode, nodeActions, onConnect }: DefaultEditorProps) {
+  const state = useEditorState(editor, contextNodeId, namespace);
   const active = state.active;
   const inDialog = contextNodeId !== null;
   const previews = state.previewLayouts;
@@ -43,7 +45,7 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
   }, [scope.layouts, previews, state.contextNodeId]);
   const canEdit = active && state.loaded && !state.loading;
   const dirty = Boolean(state.inFlight || Object.keys(state.pending).length);
-  const status = state.loading ? '读取中' : state.error ? (state.error.phase === 'load' ? '读取失败' : '保存失败') : state.inFlight ? '保存中' : dirty ? '待保存' : '已保存';
+  const status = state.loading ? '读取中' : state.error ? (state.error.phase === 'load' ? '读取失败' : '保存失败') : activity ? activity : state.inFlight ? '保存中' : dirty ? '待保存' : '已保存';
 
   useEffect(() => { closeMenu(); }, [active, state.contextNodeId, closeMenu]);
 
@@ -91,7 +93,7 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
 
   return <section className={`editor-shell${inDialog ? ' dialog-editor' : ''}`} data-testid={inDialog ? 'member-editor' : 'main-editor'} aria-label={inDialog ? '直接成员画布' : '主画布'}>
     <div className="canvas" ref={canvas} tabIndex={-1} aria-label="节点画布">
-      <GraphCanvas id={inDialog ? 'members-flow' : 'main-flow'} viewKey={contextNodeId ?? 'global'}
+      <GraphCanvas id={inDialog ? 'members-flow' : 'main-flow'} viewKey={contextNodeId ?? namespace ?? 'global'}
         nodeIds={scope.nodeIds} edges={scope.edges} positions={displayedLayouts}
         selection={{ nodes: state.selectedNodes, edges: state.selectedEdges }} enabled={canEdit} renderNode={renderNode}
         onSelect={update => {
@@ -105,11 +107,11 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
         }}
         onPreviewPositions={positions => state.previewPositions(scopedPositions(positions))}
         onCommitPositions={(before, after) => state.commitPositions(scopedPositions(before), scopedPositions(after))}
-        onOpenNode={onOpenNode ?? state.openScope} onContextMenu={openMenu} onInteractionStart={closeMenu} />
+        onOpenNode={onOpenNode ?? (namespace ? undefined : state.openScope)} onContextMenu={openMenu} onInteractionStart={closeMenu} />
     </div>
     <header className="editor-header">
       {inDialog ? <span className="canvas-caption">仅显示直接成员</span> : <strong className="wordmark">uknode</strong>}
-      <output className={`save-status${state.error ? ' is-error' : dirty ? ' is-pending' : ''}`} aria-live={active ? 'polite' : 'off'} data-testid={inDialog ? 'dialog-save-status' : 'save-status'}><Icon name="check" />{status}</output>
+      <output className={`save-status${state.error ? ' is-error' : dirty || activity ? ' is-pending' : ''}`} aria-live={active ? 'polite' : 'off'} data-testid={inDialog ? 'dialog-save-status' : 'save-status'}><Icon name="check" />{status}</output>
     </header>
     {nodeActions && <div className="node-actions surface" role="group" aria-label="业务节点">
       {nodeActions.map(action => <button key={action.label} disabled={!canEdit} onClick={() => {
@@ -120,12 +122,12 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
       }}>{action.label}</button>)}
     </div>}
     <div className="toolbar surface" role="group" aria-label="图编辑工具">
-      <button aria-label="新增节点" title="新增节点" disabled={!canEdit} onClick={() => {
+      {!nodeActions && <button aria-label="新增节点" title="新增节点" disabled={!canEdit} onClick={() => {
         const rect = canvas.current!.getBoundingClientRect();
         const offset = Object.keys(state.nodes).length % 6 * 24;
         const position = flow.screenToFlowPosition({ x: rect.x + rect.width / 2 + offset, y: rect.y + rect.height / 2 + offset });
         state.createNode(position.x - 86, position.y - 27);
-      }}><Icon name="plus" /><span>新增节点</span></button>
+      }}><Icon name="plus" /><span>新增节点</span></button>}
       {inDialog && <button aria-label="解除收录" title="解除选中节点的收录（Delete）" disabled={!canEdit || !state.selectedNodes.length} onClick={state.removeSelectedMemberships}><Icon name="unlink" /><span>解除收录</span></button>}
       <button aria-label={inDialog ? '彻底删除选中' : '删除选中'} title="彻底删除选中对象，影响所有引用" disabled={!canEdit || (!state.selectedNodes.length && !state.selectedEdges.length)} onClick={deleteSelected}><Icon name="trash" /><span>{inDialog ? '彻底删除' : '删除选中'}</span></button>
       <span className="control-divider" />
@@ -133,10 +135,10 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
       <button aria-label="重做" title="重做（Ctrl / ⌘ Shift Z）" disabled={!canEdit || !state.canRedo} onClick={state.redo}><Icon name="redo" /><span>重做</span></button>
     </div>
     <p className="canvas-hint">拖动框选<span>·</span>空格拖动平移<span>·</span>右键新增</p>
-    {!scope.nodeIds.length && canEdit && <div className="empty-hint">{inDialog ? '尚未收录节点' : '右键新增节点'}<small>{inDialog ? '在这里新增，或从上方收录已有节点' : '也可以使用下方工具栏'}</small></div>}
+    {!scope.nodeIds.length && canEdit && <div className="empty-hint">{inDialog ? '尚未收录节点' : '右键新增节点'}<small>{inDialog ? '在这里新增，或从上方收录已有节点' : nodeActions ? '也可以使用上方的业务节点按钮' : '也可以使用下方工具栏'}</small></div>}
     <CanvasControls />
-    <SelectionDetails state={state} layouts={displayedLayouts} renderDetails={renderDetails} />
-    {menu && <CanvasMenu menu={menu} disabled={!canEdit} onClose={dismissMenu} onCreate={() => {
+    <SelectionDetails structural={!namespace} state={state} layouts={displayedLayouts} renderDetails={renderDetails} />
+    {menu && <CanvasMenu menu={menu} disabled={!canEdit} onClose={dismissMenu} onCreate={nodeActions ? undefined : () => {
       if (canEdit) state.createNode(menu.position.x, menu.position.y);
       dismissMenu();
     }} additionalCreates={nodeActions?.map(action => ({ label: action.label, run: () => {
@@ -148,7 +150,7 @@ export function DefaultEditor({ editor, saver, contextNodeId, renderNode, render
       if (canEdit) { state.select(menu.nodeIds, []); state.removeSelectedMemberships(); }
       dismissMenu();
     } : undefined} />}
-    {connectionError && <div className="interaction-message surface" role="alert">{connectionError}<button onClick={() => setConnectionError(null)}>关闭</button></div>}
+    {(connectionError || state.editMessage) && <div className="interaction-message surface" role="alert">{state.editMessage || connectionError}<button onClick={() => { setConnectionError(null); editor.session.setState({ editMessage: null }); }}>关闭</button></div>}
     {state.error && <div className="save-error surface" role="alert">
       <span>{state.error.message} </span>
       {state.error.retryable && <button onClick={() => void saver.retry()}>重试</button>}

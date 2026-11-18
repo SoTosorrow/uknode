@@ -6,6 +6,7 @@ import type { SessionStore } from '../../runtime/client/session.js';
 import { NodeControls } from '../../view/node-shell.js';
 import { videoData, type ImageData, type PromptData, type OutputData } from './model.js';
 import { updateVideoNode, moveInput } from './actions.js';
+import { useUploads } from './uploads.js';
 import { buildConfig, inputsFor } from './config.js';
 
 type Props = { nodeId: string; session: SessionStore };
@@ -13,14 +14,16 @@ const titles = { image: '参考图片', prompt: '提示词', output: '视频配�
 const assetUrl = (path: string) => `/api/ext/ai-video/${path}`;
 
 function ImageEditor({ nodeId, session, data }: Props & { data: ImageData }) {
-  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [error, setError] = useState('');
+  const { nodeIds, mark } = useUploads();
+  const busy = nodeIds.has(nodeId);
   const request = useRef<AbortController | null>(null), dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => () => { request.current?.abort(); mark(nodeId, false); }, [mark, nodeId]);
   async function upload(file: File) {
     if (file.size > 20 * 1024 * 1024) { setError('图片不能超过 20 MB'); return; }
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
-    setBusy(true); setError('');
+    mark(nodeId, true); setError('');
     try {
       // Verify the browser can actually decode the selected image before upload.
       const bitmap = await createImageBitmap(file); bitmap.close();
@@ -30,7 +33,7 @@ function ImageEditor({ nodeId, session, data }: Props & { data: ImageData }) {
       if (!controller.signal.aborted) updateVideoNode(session, nodeId, { kind: 'image', ...response.data });
     } catch (cause) {
       if (!controller.signal.aborted) setError(axios.isAxiosError(cause) ? cause.response?.data?.message ?? '上传失败，请重试' : '无法读取这张图片');
-    } finally { if (!controller.signal.aborted) setBusy(false); }
+    } finally { if (!controller.signal.aborted) mark(nodeId, false); }
   }
   return <>
     {data.path ? <button className="video-image-preview" aria-label="放大图片" onClick={() => dialog.current?.showModal()}>
@@ -63,9 +66,9 @@ function OutputEditor({ nodeId, session, data }: Props & { data: OutputData }) {
   return <>
     <label className="video-field">输出文件名<input aria-label="输出文件名" maxLength={100} value={data.outputFilename}
       onChange={event => updateVideoNode(session, nodeId, { ...data, outputFilename: event.target.value }, 'filename')} /></label>
-    <label className="video-field">步数<input aria-label="步数" type="number" min={1} max={1000} step={1} value={data.steps ?? ''}
+    <label className="video-field">步数<input aria-label="步数" type="number" value={data.steps ?? ''}
       onChange={event => { const value = event.target.value === '' ? null : Number(event.target.value);
-        if (value === null || (Number.isInteger(value) && value >= 1 && value <= 1000)) updateVideoNode(session, nodeId, { ...data, steps: value }, 'steps');
+        updateVideoNode(session, nodeId, { ...data, steps: value }, 'steps');
       }} /></label>
     <div className="video-input-heading">前序输入 <span>{inputs.length}</span></div>
     {!inputs.length && <p className="video-muted">把图片和提示词连到左侧连接点</p>}
@@ -100,11 +103,13 @@ export function VideoNode({ nodeId, session }: Props) {
 export function VideoDetails({ nodeId, session }: Props) {
   const state = useStore(session, useShallow(state => ({ edges: state.edges, attachments: state.attachments,
     pending: state.pending, inFlight: state.inFlight, loading: state.loading, error: state.error })));
+  const uploads = useUploads();
   const [message, setMessage] = useState('');
   const data = videoData(state, nodeId);
   if (data?.kind !== 'output') return null;
   const { config, errors } = buildConfig(state, nodeId), json = config ? JSON.stringify(config, null, 2) : '';
-  const disabled = !config || state.loading || Boolean(state.error || state.inFlight || Object.keys(state.pending).length);
+  const waitingForImage = inputsFor(state, nodeId).some(input => uploads.nodeIds.has(input.nodeId));
+  const disabled = waitingForImage || !config || state.loading || Boolean(state.error || state.inFlight || Object.keys(state.pending).length);
   function download() {
     const url = URL.createObjectURL(new Blob([json + '\n'], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = `${config!.output_filename}.json`; link.click();
@@ -112,7 +117,7 @@ export function VideoDetails({ nodeId, session }: Props) {
   }
   return <section className="video-export" aria-label="JSON 配置">
     <h3>JSON 配置</h3>
-    {errors.length ? <ul className="video-error">{errors.map(error => <li key={error}>{error}</li>)}</ul>
+    {waitingForImage ? <p role="status">参考图片正在上传，完成后更新配置。</p> : errors.length ? <ul className="video-error">{errors.map(error => <li key={error}>{error}</li>)}</ul>
       : <textarea aria-label="JSON 预览" readOnly value={json} spellCheck={false} />}
     <div className="video-export-actions"><button disabled={disabled} onClick={download}>下载 JSON</button>
       <button disabled={disabled} onClick={() => { void navigator.clipboard.writeText(json).then(() => setMessage('已复制'), () => setMessage('复制失败，请从预览框手动复制')); }}>复制 JSON</button></div>

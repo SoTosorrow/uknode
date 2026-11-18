@@ -145,3 +145,8 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 @media (prefers-reduced-motion: reduce) {
   .react-flow__handle { transition: none; }
 }
+
+.canvas-switch { position: absolute; top: 22px; left: 132px; z-index: 21; display: flex; gap: 3px; padding: 3px; border: 1px solid var(--border); background: white; border-radius: 7px; }
+.canvas-switch a { padding: 5px 10px; color: var(--muted); font-size: 12px; text-decoration: none; border-radius: 4px; }
+.canvas-switch a[aria-current="page"] { background: #edf2ff; color: var(--accent); }
+@media (max-width: 600px) { .canvas-switch { top: 18px; left: 105px; } .canvas-switch a { padding: 5px 6px; } }

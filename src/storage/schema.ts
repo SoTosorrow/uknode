@@ -56,6 +56,5 @@ export const baseStoreState = sqliteTable('base_store_state', {
 // Bounded idempotency receipts, not user edit history or graph versions.
 export const baseBatchReceipts = sqliteTable('base_batch_receipts', {
   batchId: text('batch_id').primaryKey(),
-  payloadHash: text('payload_hash').notNull(),
   revision: integer('revision').notNull(),
 }, table => [index('base_batch_receipts_revision_idx').on(table.revision)]);

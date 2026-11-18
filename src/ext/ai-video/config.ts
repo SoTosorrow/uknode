@@ -1,5 +1,5 @@
 import type { DocumentObjects } from '../../runtime/document.js';
-import { videoData, type VideoData } from './model.js';
+import { validSteps, videoData, type VideoData } from './model.js';
 
 export interface VideoConfig {
   prompt: string;
@@ -10,9 +10,13 @@ export interface VideoConfig {
 export interface VideoInput { nodeId: string; data: VideoData | undefined }
 type VideoGraph = Pick<DocumentObjects, 'edges' | 'attachments'>;
 
+function incomingEdges(document: VideoGraph, outputId: string) {
+  return Object.values(document.edges).filter(edge => edge.target === outputId && videoData(document, edge.source));
+}
+
 export function inputsFor(document: VideoGraph, outputId: string): VideoInput[] {
   const output = videoData(document, outputId);
-  const sources = new Set(Object.values(document.edges).filter(e => e.target === outputId).map(e => e.source));
+  const sources = new Set(incomingEdges(document, outputId).map(edge => edge.source));
   const saved = output?.kind === 'output' ? output.inputOrder.filter(id => sources.has(id)) : [];
   // External graph edits also get a deterministic order until explicitly reordered.
   const ordered = [...saved, ...[...sources].filter(id => !saved.includes(id)).sort()];
@@ -23,8 +27,8 @@ export function buildConfig(document: VideoGraph, outputId: string): { config: V
   const output = videoData(document, outputId), errors: string[] = [];
   if (output?.kind !== 'output') return { config: null, errors: ['请选择配置节点'] };
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(output.outputFilename)) errors.push('输出文件名需为 1–100 位字母、数字、下划线或短横线');
-  if (output.steps === null || !Number.isInteger(output.steps) || output.steps < 1 || output.steps > 1000) errors.push('步数需为 1–1000 的整数');
-  if (Object.values(document.edges).some(e => e.target === outputId && !e.directed)) errors.push('输入连线必须开启方向');
+  if (!validSteps(output.steps)) errors.push('步数需为 1–1000 的整数');
+  if (incomingEdges(document, outputId).some(edge => !edge.directed)) errors.push('输入连线必须开启方向');
   const prompts: string[] = [], references: VideoConfig['references'] = [];
   for (const { nodeId, data } of inputsFor(document, outputId)) {
     if (data?.kind === 'image') {

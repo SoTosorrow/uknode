@@ -24,7 +24,10 @@ export function createApp(service: GraphService, options: { dev?: boolean; logge
   app.get('/api/graph', () => service.readGraph());
   app.post<{ Body: ChangeBatch }>('/api/changes', { schema: { body: batchSchema } }, request => service.applyBatch(request.body));
   app.setErrorHandler<FastifyError>((error, request, reply) => {
-    if (error instanceof WriteError) return reply.code(error.statusCode).send({ code: error.code, message: error.message });
+    if (error instanceof WriteError) {
+      const status = error.code === 'REVISION_CONFLICT' ? 409 : 400;
+      return reply.code(status).send({ code: error.code, message: error.message });
+    }
     if (error.validation) return reply.code(400).send({ code: 'INVALID_BATCH', message: '提交内容不符合接口定义，修改仍保留在本页' });
     const status = error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500;
     request.log.error(error);

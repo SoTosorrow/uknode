@@ -77,6 +77,10 @@ export class Autosave {
     const message = typeof body?.message === 'string' ? body.message
       : error instanceof Error && !axios.isAxiosError(error) ? error.message
       : '请求失败，尚未确认的修改保留在本页，请重试';
+    if (phase === 'save' && status === 400) {
+      this.store.getState().rejectValidation(message);
+      return;
+    }
     this.store.setState({ error: { message, phase, retryable: status === undefined || status >= 500 || status === 429 } });
   }
 

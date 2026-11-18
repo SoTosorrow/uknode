@@ -24,7 +24,7 @@ export function openDatabase(filename: string, extensions: StorageExtension[] = 
   );
   function extension(namespace: string) {
     const found = extensions.find(item => item.namespace === namespace);
-    if (!found) throw new WriteError(400, 'UNKNOWN_EXTENSION', '未启用对应业务模块');
+    if (!found) throw new WriteError('UNKNOWN_EXTENSION', '未启用对应业务模块');
     return found;
   }
   try {
@@ -95,9 +95,9 @@ export function openDatabase(filename: string, extensions: StorageExtension[] = 
             validateMemberships(memberships);
           }
         },
-        recordReceipt(batchId, hash, revision) {
+        recordReceipt(batchId, revision) {
           tx.update(baseStoreState).set({ revision }).where(eq(baseStoreState.id, 1)).run();
-          tx.insert(baseBatchReceipts).values({ batchId, payloadHash: hash, revision }).run();
+          tx.insert(baseBatchReceipts).values({ batchId, revision }).run();
           tx.delete(baseBatchReceipts).where(lte(baseBatchReceipts.revision, revision - 1000)).run();
         },
       }), { behavior: 'immediate' });
@@ -105,9 +105,9 @@ export function openDatabase(filename: string, extensions: StorageExtension[] = 
       // Drizzle may wrap a SQLite constraint failure in a query error.
       const cause = error instanceof Error && error.cause ? error.cause : error;
       if (cause instanceof SQLite.SqliteError) {
-        if (cause.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') throw new WriteError(400, 'MISSING_NODE', '关联的节点或范围不存在');
+        if (cause.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') throw new WriteError('MISSING_NODE', '关联的节点或范围不存在');
         if (cause.code === 'SQLITE_CONSTRAINT_CHECK' && cause.message.includes('base_memberships_not_self')) {
-          throw new WriteError(400, 'MEMBERSHIP_CYCLE', '节点不能收录自身或形成包含循环');
+          throw new WriteError('MEMBERSHIP_CYCLE', '节点不能收录自身或形成包含循环');
         }
       }
       throw error;

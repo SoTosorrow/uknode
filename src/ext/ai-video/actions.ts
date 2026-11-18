@@ -1,19 +1,17 @@
 import type { SessionStore } from '../../runtime/client/session.js';
-import type { Change } from '../../runtime/protocol.js';
+import { WriteError } from '../../runtime/errors.js';
 import { initialData, videoAttachment, videoData, type VideoData } from './model.js';
 import { inputsFor } from './config.js';
 
-export function createVideoNode(session: SessionStore, kind: VideoData['kind'], position: { x: number; y: number }, contextNodeId: string | null) {
+export function createVideoNode(session: SessionStore, kind: VideoData['kind'], position: { x: number; y: number }) {
   const state = session.getState();
   if (!state.loaded || state.loading) return null;
   const id = state.allocateId();
-  const changes: Change[] = [
+  state.edit([
     { type: 'node.put', node: { id } },
-    { type: 'layout.put', layout: { nodeId: id, contextNodeId, ...position } },
+    { type: 'layout.put', layout: { nodeId: id, contextNodeId: null, ...position } },
     { type: 'attachment.put', attachment: videoAttachment(id, initialData(kind)) },
-  ];
-  if (contextNodeId !== null) changes.push({ type: 'membership.put', membership: { containerId: contextNodeId, memberId: id } });
-  state.edit(changes);
+  ]);
   return id;
 }
 
@@ -31,8 +29,12 @@ export function connectVideo(session: SessionStore, source: string, target: stri
 }
 
 export function updateVideoNode(session: SessionStore, nodeId: string, data: VideoData, field?: string) {
-  if (!session.getState().nodes[nodeId]) return;
-  session.getState().edit([{ type: 'attachment.put', attachment: videoAttachment(nodeId, data) }], field ? `ai-video:${nodeId}:${field}` : undefined);
+  try {
+    session.getState().edit([{ type: 'attachment.put', attachment: videoAttachment(nodeId, data) }], field ? `ai-video:${nodeId}:${field}` : undefined);
+  } catch (error) {
+    if (!(error instanceof WriteError)) throw error;
+    session.setState({ editMessage: error.message });
+  }
 }
 
 export function moveInput(session: SessionStore, outputId: string, nodeId: string, offset: number) {

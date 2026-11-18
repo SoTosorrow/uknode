@@ -1,6 +1,7 @@
 import { type BaseNode, type BaseEdge, type Membership, type GraphObjects } from '../core/model.js';
 import type { GraphChange } from '../core/changes.js';
 import { applyGraphChanges } from '../core/graph.js';
+import { WriteError } from './errors.js';
 import type { Change } from './protocol.js';
 import { attachmentKey, type NodeAttachment } from './attachments.js';
 
@@ -52,7 +53,7 @@ export function applyDocumentChanges(document: DocumentObjects, input: Change[])
   for (const [key, change] of attachmentChanges) {
     if (change.type === 'attachment.delete') delete attachments[key];
     else {
-      if (!result.graph.nodes[change.attachment.nodeId]) throw new Error('业务数据对应的节点不存在');
+      if (!result.graph.nodes[change.attachment.nodeId]) throw new WriteError('MISSING_NODE', '业务数据对应的节点已不存在');
       attachments[key] = change.attachment;
     }
   }

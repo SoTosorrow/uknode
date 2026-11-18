@@ -18,11 +18,9 @@ export function videoStorage(directory: string): StorageExtension {
       });
     },
     put(db, attachment) {
-      let data: VideoData;
-      try { data = parseVideoData(attachment.data); }
-      catch (error) { throw new WriteError(400, 'INVALID_VIDEO_DATA', (error as Error).message); }
+      const data = parseVideoData(attachment.data);
       if (data.kind === 'image' && data.path && !existsSync(resolve(directory, data.path))) {
-        throw new WriteError(400, 'MISSING_IMAGE', '图片文件不存在，请重新上传');
+        throw new WriteError('MISSING_IMAGE', '图片文件不存在，请重新上传');
       }
       const row = {
         nodeId: attachment.nodeId, kind: data.kind,

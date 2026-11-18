@@ -1,4 +1,5 @@
 import { attachmentKey, type NodeAttachment } from '../../runtime/attachments.js';
+import { WriteError } from '../../runtime/errors.js';
 import type { DocumentObjects } from '../../runtime/document.js';
 
 export const namespace = 'ai-video';
@@ -23,14 +24,23 @@ export function initialData(kind: VideoData['kind']): VideoData {
 // Validate business fields at the storage boundary, including direct service calls.
 export function parseVideoData(value: Record<string, unknown>): VideoData {
   const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
-  const keys = Object.keys(value).sort().join(',');
-  if (value.kind === 'image' && keys === 'kind,name,path' && text(value.name, 255)
-    && (value.path === null || (typeof value.path === 'string' && assetPattern.test(value.path)))) return value as ImageData;
-  if (value.kind === 'prompt' && keys === 'kind,text' && text(value.text, 20000)) return value as PromptData;
-  if (value.kind === 'output' && keys === 'inputOrder,kind,outputFilename,steps' && text(value.outputFilename, 100)
-    && (value.steps === null || (Number.isInteger(value.steps) && Number(value.steps) >= 1 && Number(value.steps) <= 1000))
-    && Array.isArray(value.inputOrder) && value.inputOrder.length <= 10000
-    && value.inputOrder.every(id => typeof id === 'string' && /^[A-Za-z0-9_-]{12}$/.test(id))
-    && new Set(value.inputOrder).size === value.inputOrder.length) return value as OutputData;
-  throw new Error('视频节点字段无效，请检查图片、提示词或输出参数');
+  const { kind, name, path, outputFilename, steps, inputOrder } = value;
+  if (kind === 'image' && text(name, 255) && (path === null || (typeof path === 'string' && assetPattern.test(path)))) {
+    return { kind, name, path };
+  }
+  if (kind === 'prompt' && text(value.text, 20000)) return { kind, text: value.text };
+  if (kind === 'output' && text(outputFilename, 100)
+    && Array.isArray(inputOrder) && inputOrder.length <= 10000
+    && inputOrder.every(id => typeof id === 'string' && /^[A-Za-z0-9_-]{12}$/.test(id))
+    && new Set(inputOrder).size === inputOrder.length) {
+    if (steps !== null && !validSteps(steps)) {
+      throw new WriteError('INVALID_VIDEO_DATA', '步数需为 1–1000 的整数，修改后会重新保存');
+    }
+    return { kind, outputFilename, steps, inputOrder };
+  }
+  throw new WriteError('INVALID_VIDEO_DATA', '视频节点字段无效，请检查图片、提示词或输出参数');
+}
+
+export function validSteps(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 1000;
 }

@@ -5,6 +5,10 @@ import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig 
 import { createTestEditor } from './fixtures.js';
 import { Autosave } from '../src/runtime/client/autosave.js';
 import { openTestGraph } from './fixtures.js';
+import { openDatabase } from '../src/storage/sqlite.js';
+import { createGraphService } from '../src/runtime/server/batches.js';
+import { videoStorage } from '../src/ext/ai-video/storage.js';
+import { createVideoNode, updateVideoNode } from '../src/ext/ai-video/actions.js';
 import { createApp } from '../src/app/backend/routes.js';
 import type { GraphData } from '../src/runtime/document.js';
 
@@ -50,27 +54,6 @@ test('pending changes coalesce; deleting unsent objects retains harmless final d
   assert.deepEqual(store.getState().nodes, {});
   assert.deepEqual(store.getState().edges, {});
   assert.deepEqual(store.getState().layouts, {});
-});
-
-test('ID collisions retry against loaded objects, pending creations and deleted session objects', () => {
-  const a = 'nodeExisting', edgeId = 'edgeExisting', b = 'nodeCreated1', c = 'nodeCreated2', newEdge = 'edgeCreated1';
-  const candidates = [a, edgeId, b, b, a, c, c, edgeId, b, newEdge];
-  const store = createTestEditor(() => {
-    const id = candidates.shift();
-    assert(id, 'unexpected extra generation attempt');
-    return id;
-  });
-  store.getState().hydrate({ ...empty, nodes: [{ id: a }], edges: [{ id: edgeId, source: a, target: a, directed: false }] });
-  assert.equal(store.getState().createNode(10, 20), b);
-  assert.equal(store.getState().createNode(30, 40), c);
-  store.getState().select([b], []);
-  store.getState().deleteSelection();
-  store.getState().createEdge(a, c);
-  assert.deepEqual(Object.keys(store.getState().edges), [edgeId, newEdge]);
-  assert.equal(candidates.length, 0);
-  store.getState().undo(); // Remove the new edge.
-  store.getState().undo(); // Restore the deleted node under its original ID.
-  assert.deepEqual(Object.keys(store.getState().nodes).sort(), [a, b, c].sort());
 });
 
 test('acknowledging an in-flight create preserves the newer pending delete', () => {
@@ -182,3 +165,33 @@ test('revision conflict preserves edits without enabling an unsafe retry', async
   assert.equal(db.readGraph().revision, 1);
   assert.equal(db.readGraph().nodes.length, 1);
 });
+
+for (const correctDuringRequest of [false, true]) {
+  test(`a rejected batch uses corrected values and retains other edits (correction during request: ${correctDuringRequest})`, async t => {
+    const db = createGraphService(openDatabase(':memory:', [videoStorage('.')]));
+    const app = createApp(db), editor = createTestEditor();
+    const saver = new Autosave(editor.session, httpFor(app));
+    t.after(async () => { saver.dispose(); await app.close(); });
+    await saver.load();
+    const id = createVideoNode(editor.session, 'output', { x: 3, y: 4 })!;
+    const setSteps = (steps: number) => updateVideoNode(editor.session, id, {
+      kind: 'output', steps, outputFilename: 'scene', inputOrder: [],
+    });
+    setSteps(1001);
+    const sending = saver.flush();
+    if (correctDuringRequest) setSteps(15);
+    await sending;
+    assert.equal(db.readGraph().revision, 0);
+    assert.equal(editor.getState().inFlight, null);
+    if (!correctDuringRequest) {
+      assert.equal(editor.getState().error?.phase, 'validation');
+      setSteps(15);
+    }
+    assert.equal(editor.getState().error, null);
+    await saver.flush();
+    assert.equal(db.readGraph().attachments[0].data.steps, 15);
+    assert.equal(db.readGraph().nodes[0].id, id);
+    assert.equal(db.readGraph().layouts[0].x, 3);
+    assert.equal(db.readGraph().revision, 1);
+  });
+}

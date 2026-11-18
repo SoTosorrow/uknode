@@ -53,7 +53,7 @@ test('migrations create the declared core tables; edits and cascades survive reo
   assert.deepEqual(db.readGraph().layouts, [{ contextNodeId: null, nodeId: b, x: 100, y: 200 }]);
 });
 
-test('retries are idempotent even after a later write; mismatched batch reuse is rejected', t => {
+test('retries are idempotent even after a later write; a new stale batch is rejected', t => {
   const db = openTestGraph(':memory:'); t.after(() => db.close());
   const a = nanoid(12);
   const initial = batch(0, [{ type: 'node.put', node: { id: a } }]);
@@ -64,7 +64,6 @@ test('retries are idempotent even after a later write; mismatched batch reuse is
   db.applyBatch(batch(1, [{ type: 'layout.put', layout: { contextNodeId: null, nodeId: a, x: 8, y: 9 } }]));
   assert.deepEqual(db.applyBatch(initial), receipt);
   assert.equal(db.readGraph().revision, 2);
-  assert.throws(() => db.applyBatch({ ...initial, changes: [{ type: 'node.delete', id: a }] }), (e: unknown) => e instanceof WriteError && e.code === 'BATCH_MISMATCH');
   assert.throws(() => db.applyBatch(batch(0, [{ type: 'node.delete', id: a }])), (e: unknown) => e instanceof WriteError && e.code === 'REVISION_CONFLICT');
 });
 

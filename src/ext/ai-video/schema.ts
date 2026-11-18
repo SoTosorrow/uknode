@@ -14,5 +14,4 @@ export const videoNodes = sqliteTable('ext_ai_video_nodes', {
   inputOrder: text('input_order', { mode: 'json' }).$type<string[]>(),
 }, table => [
   check('ext_ai_video_kind', sql`${table.kind} in ('image', 'prompt', 'output')`),
-  check('ext_ai_video_steps', sql`${table.steps} is null or ${table.steps} between 1 and 1000`),
 ]);

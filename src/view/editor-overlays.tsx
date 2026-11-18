@@ -56,7 +56,7 @@ export interface CanvasMenuState {
 export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDelete, onDetach, onClose }: {
   menu: CanvasMenuState;
   disabled: boolean;
-  onCreate: () => void;
+  onCreate?: () => void;
   additionalCreates?: Array<{ label: string; run: () => void }>;
   onDelete: () => void;
   onDetach?: () => void;
@@ -97,7 +97,7 @@ export function CanvasMenu({ menu, disabled, onCreate, additionalCreates, onDele
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
     buttons[next].focus();
   }}>
-    <button role="menuitem" disabled={disabled} onClick={onCreate}><Icon name="plus" />新增节点</button>
+    {onCreate && <button role="menuitem" disabled={disabled} onClick={onCreate}><Icon name="plus" />新增节点</button>}
     {additionalCreates?.map(action => <button key={action.label} role="menuitem" disabled={disabled} onClick={action.run}><Icon name="plus" />{action.label}</button>)}
     {onDetach && <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDetach}><Icon name="unlink" />解除收录{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>}
     <button role="menuitem" disabled={disabled || !menu.nodeIds.length} onClick={onDelete}><Icon name="trash" />{onDetach ? '彻底删除节点' : '删除节点'}{menu.nodeIds.length > 1 && <span className="menu-count">{menu.nodeIds.length}</span>}</button>
